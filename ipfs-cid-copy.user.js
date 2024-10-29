@@ -160,34 +160,34 @@
                 'QmUNLLsPACCz1vLxQVkXqqLX5R1X345qqfHbsf67hvA3Nn'
             ];
             
-            // 提取 CID 的逻辑
             let extractedCID = null;
             
             // 匹配子域名形式
             const subdomain = urlObj.hostname.split('.')[0];
-            if (subdomain.match(/^(baf[a-zA-Z0-9]{1,}|Qm[a-zA-Z0-9]{44})$/i)) {
+            if (subdomain.match(/^(baf[yk][a-zA-Z0-9]{55}|Qm[a-zA-Z0-9]{44})$/i)) {
                 extractedCID = subdomain;
             }
-            if (subdomain.match(/^(k51[a-zA-Z0-9]{1,})$/i)) {
+            // 更精确的 IPNS key 匹配
+            if (subdomain.match(/^k51[a-zA-Z0-9]{59}$/i)) {
                 extractedCID = subdomain;
             }
     
-            // 匹配路径中的IPFS CID
-            const ipfsPathMatch = urlObj.pathname.match(/\/ipfs\/(baf[a-zA-Z0-9]{1,}|Qm[a-zA-Z0-9]{44})/i) ||
-                                url.match(/\/ipfs\/(baf[a-zA-Z0-9]{1,}|Qm[a-zA-Z0-9]{44})/i);
+            // 匹配路径中的 IPFS CID
+            const ipfsPathMatch = urlObj.pathname.match(/\/ipfs\/(baf[yk][a-zA-Z0-9]{55}|Qm[a-zA-Z0-9]{44})/i) ||
+                                url.match(/\/ipfs\/(baf[yk][a-zA-Z0-9]{55}|Qm[a-zA-Z0-9]{44})/i);
             if (ipfsPathMatch) {
                 extractedCID = ipfsPathMatch[1];
             }
     
-            // 匹配IPNS密钥
-            const ipnsKeyMatch = urlObj.pathname.match(/\/ipns\/(k51[a-zA-Z0-9]{1,})/i) ||
-                               url.match(/\/ipns\/(k51[a-zA-Z0-9]{1,})/i);
+            // 匹配路径中的 IPNS key
+            const ipnsKeyMatch = urlObj.pathname.match(/\/ipns\/(k51[a-zA-Z0-9]{59})/i) ||
+                               url.match(/\/ipns\/(k51[a-zA-Z0-9]{59})/i);
             if (ipnsKeyMatch) {
                 extractedCID = ipnsKeyMatch[1];
             }
     
-            // 匹配路径中的独立IPNS密钥
-            const ipnsPathMatch = urlObj.pathname.match(/(k51[a-zA-Z0-9]{1,})/i);
+            // 匹配路径中的独立 IPNS key
+            const ipnsPathMatch = urlObj.pathname.match(/(k51[a-zA-Z0-9]{59})/i);
             if (ipnsPathMatch) {
                 extractedCID = ipnsPathMatch[1];
             }
