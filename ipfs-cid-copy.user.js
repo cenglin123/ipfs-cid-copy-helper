@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         IPFS CID Copy Helper
 // @namespace    http://tampermonkey.net/
-// @version      1.2
+// @version      1.4
 // @description  自动为网页中的 IPFS 链接添加 CID 复制功能，右下角可以显示批量操作窗口。 支持多种 IPFS/IPNS 格式和批量复制。
 // @author       cenglin123
 // @match        *://*/*
@@ -66,7 +66,7 @@
             background: #357abd;
         }
         .ipfs-copy-count {
-            background: #ff4444;
+            background: #5cb3ff;
             color: white;
             border-radius: 50%;
             padding: 2px 6px;
