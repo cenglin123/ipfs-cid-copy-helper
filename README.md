@@ -4,7 +4,7 @@
 支持多种 IPFS/IPNS 格式和批量复制。
 
 <div align="center">
-  <img src="img/example.jpg" width="800" alt="示例1">
+  <img src="img/example1.4.jpg" width="800" alt="示例1">
 </div>
 
 ## 安装 / Installation
