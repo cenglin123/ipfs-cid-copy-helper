@@ -11,14 +11,13 @@
 // @updateURL    https://github.com/cenglin123/ipfs-cid-copy-helper/raw/main/ipfs-cid-copy.user.js
 // @downloadURL  https://github.com/cenglin123/ipfs-cid-copy-helper/raw/main/ipfs-cid-copy.user.js
 // @supportURL   https://github.com/cenglin123/ipfs-cid-copy-helper/issues
-// ==/UserScript==
 // @license MIT
 // ==/UserScript==
 
 (function() {
     'use strict';
 
-    // 样式保持不变...
+    // 样式
     GM_addStyle(`
         .ipfs-copy-btn {
             display: none;
@@ -150,7 +149,7 @@
         }
     }
 
-    // 改进的提取CID函数
+    // 提取CID函数
     function extractCID(url) {
         try {
             const urlObj = new URL(url);
@@ -288,7 +287,7 @@
         localStorage.setItem('ipfsCopyHelperCollapsed', isCollapsed);
     }
 
-    // 保持事件处理和初始化代码...
+    // 事件处理初始化代码
     const savedCollapsedState = localStorage.getItem('ipfsCopyHelperCollapsed');
     if (savedCollapsedState !== null) {
         isCollapsed = (savedCollapsedState === 'true');
