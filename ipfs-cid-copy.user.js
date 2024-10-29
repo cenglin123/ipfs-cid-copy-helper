@@ -1,16 +1,13 @@
 // ==UserScript==
-// @name         IPFS CID Copy Helper
+// @name         IPFS CID Copy Helper (With Text Support)
 // @namespace    http://tampermonkey.net/
 // @version      1.6
-// @description  自动为网页中的 IPFS 链接添加 CID 复制功能，右下角可以显示批量操作窗口。 支持多种 IPFS/IPNS 格式和批量复制。
-// @author       cenglin123
+// @description  自动为网页中的 IPFS 链接和文本添加 CID 复制功能，支持普通文本中的 CID。
+// @author       cenglin123 (modified)
 // @match        *://*/*
 // @grant        GM_addStyle
 // @grant        GM_registerMenuCommand
 // @homepage     https://github.com/cenglin123/ipfs-cid-copy-helper
-// @updateURL    https://github.com/cenglin123/ipfs-cid-copy-helper/raw/main/ipfs-cid-copy.user.js
-// @downloadURL  https://github.com/cenglin123/ipfs-cid-copy-helper/raw/main/ipfs-cid-copy.user.js
-// @supportURL   https://github.com/cenglin123/ipfs-cid-copy-helper/issues
 // @license MIT
 // ==/UserScript==
 
@@ -105,6 +102,13 @@
         }
     `);
 
+    // CID 正则表达式模式
+    const CID_PATTERNS = [
+        /\b(baf[yk][a-zA-Z0-9]{55})\b/i,    // IPFS CID v1
+        /\b(Qm[a-zA-Z0-9]{44})\b/i,         // IPFS CID v0
+        /\b(k51[a-zA-Z0-9]{59})\b/i         // IPNS Key
+    ];
+
     // 创建UI元素
     const copyBtn = document.createElement('div');
     copyBtn.className = 'ipfs-copy-btn';
@@ -139,7 +143,7 @@
     batchDownloadBtn.innerHTML = '批量复制下载链接 <span class="ipfs-copy-count">0</span>';
     batchButtonsContainer.appendChild(batchDownloadBtn);
 
-    // 添加检查是否为 .crop.top 域名的辅助函数
+    // 检查是否为 .crop.top 域名
     function isCropTop(url) {
         try {
             const hostname = new URL(url).hostname;
@@ -183,14 +187,12 @@
                 }
 
                 // 增强型路径匹配
-                // 1. 标准 /ipfs/CID 格式
                 const ipfsPathMatch = urlObj.pathname.match(/\/ipfs\/(baf[yk][a-zA-Z0-9]{55}|Qm[a-zA-Z0-9]{44})/i) ||
                                     url.match(/\/ipfs\/(baf[yk][a-zA-Z0-9]{55}|Qm[a-zA-Z0-9]{44})/i);
                 if (ipfsPathMatch) {
                     extractedCID = ipfsPathMatch[1];
                 }
 
-                // 2. 文件夹浏览模式 - 处理父目录中的 CID
                 if (!extractedCID) {
                     const pathParts = urlObj.pathname.split('/');
                     for (let i = 0; i < pathParts.length; i++) {
@@ -230,11 +232,41 @@
         }
     }
 
+    // 查找文本中的 CID
+    function findCIDInText(text) {
+        for (const pattern of CID_PATTERNS) {
+            const match = text.match(pattern);
+            if (match) {
+                return {
+                    cid: match[1],
+                    type: match[1].startsWith('k51') ? 'IPNS Key' : 'IPFS CID'
+                };
+            }
+        }
+        return null;
+    }
+
+    // 获取选中文本
+    function getSelectedText() {
+        const selection = window.getSelection();
+        if (selection.rangeCount === 0) return null;
+
+        const range = selection.getRangeAt(0);
+        const text = range.toString().trim();
+
+        if (text.length === 0) return null;
+
+        return {
+            text: text,
+            range: range
+        };
+    }
+
     // 判断是否为文件浏览页面
     function isIPFSBrowsingPage(url) {
         try {
             const pathname = new URL(url).pathname;
-            return pathname.includes('/ipfs/') && pathname.split('/').length > 3; // /ipfs/CID/ 后还有内容
+            return pathname.includes('/ipfs/') && pathname.split('/').length > 3;
         } catch (e) {
             return false;
         }
@@ -245,25 +277,21 @@
         const links = document.getElementsByTagName('a');
         linkInfo.clear();
 
-        // 获取当前页面的 CID 以便排除
         const currentPageCID = extractCID(window.location.href);
         const currentPageBase = window.location.origin + window.location.pathname.split('/').slice(0, -1).join('/');
 
-        // 扫描页面上的所有链接
         for (const link of links) {
             const cid = extractCID(link.href);
-            if (!cid || cid === currentPageCID) continue;  // 跳过当前页面的 CID
+            if (!cid || cid === currentPageCID) continue;
 
-            // 检查链接是否为当前目录下的链接
             try {
                 const linkUrl = new URL(link.href);
                 const linkBase = linkUrl.origin + linkUrl.pathname.split('/').slice(0, -1).join('/');
-                if (linkBase === currentPageBase) continue;  // 跳过当前目录下的链接
+                if (linkBase === currentPageBase) continue;
             } catch (e) {
                 console.error('URL解析错误:', e);
             }
 
-            // 如果通过了上面的检查，添加到列表中
             const filename = extractFilename(link.href, link.textContent);
             linkInfo.set(cid, {
                 type: detectLinkType(link.href),
@@ -273,20 +301,17 @@
             });
         }
 
-        // 更新按钮显示和计数
         const count = linkInfo.size;
         const countElements = document.querySelectorAll('.ipfs-copy-count');
         countElements.forEach(el => {
             el.textContent = count;
         });
 
-        // 更新按钮显示状态
         [batchCopyBtn, batchDownloadBtn, batchFilenameBtn].forEach(btn => {
             btn.style.display = count > 0 ? 'block' : 'none';
         });
     }
 
-    // 其他辅助函数
     function extractFilename(url, linkText) {
         const filenameParam = new URL(url).searchParams.get('filename');
         if (filenameParam) {
@@ -328,22 +353,7 @@
         }
     }
 
-    const linkInfo = new Map();
-    let isCollapsed = false;
-
-    function toggleCollapse() {
-        isCollapsed = !isCollapsed;
-        batchButtonsContainer.classList.toggle('collapsed', isCollapsed);
-        localStorage.setItem('ipfsCopyHelperCollapsed', isCollapsed);
-    }
-
-    // 事件处理初始化代码
-    const savedCollapsedState = localStorage.getItem('ipfsCopyHelperCollapsed');
-    if (savedCollapsedState !== null) {
-        isCollapsed = (savedCollapsedState === 'true');
-        batchButtonsContainer.classList.toggle('collapsed', isCollapsed);
-    }
-
+    // 复制到剪贴板
     function copyToClipboard(text, button) {
         const originalText = button.textContent;
         navigator.clipboard.writeText(text).then(() => {
@@ -358,6 +368,15 @@
                 button.textContent = originalText;
             }, 1000);
         });
+    }
+
+    const linkInfo = new Map();
+    let isCollapsed = false;
+
+    function toggleCollapse() {
+        isCollapsed = !isCollapsed;
+        batchButtonsContainer.classList.toggle('collapsed', isCollapsed);
+        localStorage.setItem('ipfsCopyHelperCollapsed', isCollapsed);
     }
 
     function batchCopyCIDs() {
@@ -401,6 +420,53 @@
         }
     }
 
+    // 显示复制按钮
+    function showCopyButton(x, y, cid, type) {
+        copyBtn.style.display = 'block';
+        copyBtn.style.top = `${y + window.scrollY + 20}px`;
+        copyBtn.style.left = `${x + window.scrollX}px`;
+        copyBtn.textContent = `复制 ${type}`;
+        copyBtn.onclick = () => {
+            navigator.clipboard.writeText(cid).then(() => {
+                copyBtn.textContent = '已复制！';
+                setTimeout(() => {
+                    copyBtn.textContent = `复制 ${type}`;
+                    copyBtn.style.display = 'none';
+                }, 1000);
+            });
+        };
+    }
+
+    // 初始化文本选择功能
+    function initTextSelection() {
+        document.addEventListener('mouseup', function(e) {
+            if (e.target.classList.contains('ipfs-copy-btn')) return;
+
+            setTimeout(() => {
+                const selection = getSelectedText();
+                if (!selection) return;
+
+                const cidInfo = findCIDInText(selection.text);
+                if (cidInfo) {
+                    const rect = selection.range.getBoundingClientRect();
+                    showCopyButton(
+                        rect.left + (rect.width / 2),
+                        rect.bottom,
+                        cidInfo.cid,
+                        cidInfo.type
+                    );
+                }
+            }, 10);
+        });
+
+        // 点击其他地方时隐藏按钮
+        document.addEventListener('mousedown', function(e) {
+            if (!e.target.classList.contains('ipfs-copy-btn')) {
+                copyBtn.style.display = 'none';
+            }
+        });
+    }
+
     let scanTimeout;
     function initPageScan() {
         if (scanTimeout) {
@@ -409,23 +475,12 @@
         scanTimeout = setTimeout(scanPageForLinks, 1000);
     }
 
-    const observer = new MutationObserver((mutations) => {
-        initPageScan();
-    });
-
-
-    // 初始化配置和观察器
-    observer.observe(document.body, {
-        childList: true,
-        subtree: true
-    });
-
     // 添加新的变量来跟踪状态
     let currentHoveredLink = null;
     let isButtonHovered = false;
     let hideTimeout = null;
 
-    // 用于检查鼠标是否在元素或其子元素上的辅助函数
+    // 用于检查鼠标是否在元素或其子元素上
     function isMouseOverElement(element, event) {
         const rect = element.getBoundingClientRect();
         return (
@@ -436,106 +491,52 @@
         );
     }
 
-    // 统一的隐藏按钮函数
-    function hideButton() {
-        if (hideTimeout) {
-            clearTimeout(hideTimeout);
-        }
-        hideTimeout = setTimeout(() => {
-            if (!isButtonHovered && !currentHoveredLink) {
-                copyBtn.style.display = 'none';
-            }
-        }, 100); // 添加小延迟以处理事件时序
-    }
-
-    // 统一的显示按钮函数
-    function showButton(link) {
-        const href = link.href;
-        if (!href) return;
-
-        const linkCID = extractCID(href);
-        if (!linkCID) return;
-
-        // 在文件浏览页面或 crop.top 域名中，允许显示所有 CID
-        const shouldShow = isIPFSBrowsingPage(window.location.href) ||
-                          linkCID !== extractCID(window.location.href);
-
-        if (shouldShow) {
-            if (hideTimeout) {
-                clearTimeout(hideTimeout);
-            }
-            const linkType = detectLinkType(href);
-            const rect = link.getBoundingClientRect();
-            copyBtn.style.display = 'block';
-            copyBtn.style.top = `${rect.bottom + window.scrollY + 5}px`;
-            copyBtn.style.left = `${rect.left + (rect.width / 2) + window.scrollX}px`;
-            copyBtn.textContent = `复制 ${linkType}`;
-            copyBtn.onclick = () => copyToClipboard(linkCID, copyBtn);
-        }
-    }
-
-    // 修改后的事件监听器
+    // 链接悬停处理
     document.addEventListener('mouseover', function(e) {
         const link = e.target.closest('a');
         if (link) {
             currentHoveredLink = link;
-            showButton(link);
+            const href = link.href;
+            if (!href) return;
+
+            const linkCID = extractCID(href);
+            if (!linkCID) return;
+
+            const shouldShow = isIPFSBrowsingPage(window.location.href) ||
+                             linkCID !== extractCID(window.location.href);
+
+            if (shouldShow) {
+                const linkType = detectLinkType(href);
+                const rect = link.getBoundingClientRect();
+                showCopyButton(
+                    rect.left + (rect.width / 2),
+                    rect.bottom,
+                    linkCID,
+                    linkType
+                );
+            }
         }
     });
 
     document.addEventListener('mouseout', function(e) {
         const link = e.target.closest('a');
-        if (link) {
-            // 检查鼠标是否真的离开了链接区域
-            if (!isMouseOverElement(link, e)) {
-                currentHoveredLink = null;
-                // 如果鼠标不在按钮上，则隐藏按钮
-                if (!isButtonHovered) {
-                    hideButton();
-                }
+        if (link && !isMouseOverElement(link, e)) {
+            currentHoveredLink = null;
+            if (!isButtonHovered) {
+                copyBtn.style.display = 'none';
             }
         }
     });
 
-    copyBtn.addEventListener('mouseover', function(e) {
-        isButtonHovered = true;
-        if (hideTimeout) {
-            clearTimeout(hideTimeout);
-        }
+    // 观察DOM变化
+    const observer = new MutationObserver(() => {
+        initPageScan();
     });
 
-    copyBtn.addEventListener('mouseout', function(e) {
-        isButtonHovered = false;
-        // 检查鼠标是否移动到了链接上
-        const relatedLink = e.relatedTarget?.closest('a');
-        if (relatedLink) {
-            currentHoveredLink = relatedLink;
-            showButton(relatedLink);
-        } else {
-            hideButton();
-        }
+    observer.observe(document.body, {
+        childList: true,
+        subtree: true
     });
-
-    // 添加文档级别的鼠标移动监听，用于处理边缘情况
-    document.addEventListener('mousemove', function(e) {
-        const overLink = e.target.closest('a');
-        const overButton = e.target.closest('.ipfs-copy-btn');
-
-        if (!overLink && !overButton) {
-            currentHoveredLink = null;
-            isButtonHovered = false;
-            hideButton();
-        }
-    });
-
-    // 处理页面滚动时隐藏按钮
-    document.addEventListener('scroll', function() {
-        if (currentHoveredLink) {
-            showButton(currentHoveredLink);
-        } else {
-            hideButton();
-        }
-    }, { passive: true });
 
     // 添加菜单命令
     GM_registerMenuCommand('切换右下角浮窗默认展开/收起状态', () => {
@@ -545,7 +546,7 @@
         alert(`默认状态已更改为：${newDefault === 'true' ? '收起' : '展开'}`);
     });
 
-    // 检查默认配置
+    // 检查默认配置和初始化
     const defaultCollapsedState = localStorage.getItem('ipfsCopyHelperDefaultCollapsed');
     if (defaultCollapsedState === 'false') {
         isCollapsed = false;
@@ -561,6 +562,7 @@
     batchDownloadBtn.addEventListener('click', batchCopyDownloadLinks);
     toggleBtn.addEventListener('click', toggleCollapse);
 
-    // 执行初始扫描
+    // 启动文本选择功能和初始扫描
+    initTextSelection();
     initPageScan();
 })();
