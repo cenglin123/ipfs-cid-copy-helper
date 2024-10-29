@@ -28,6 +28,10 @@
 - 可收起的悬浮窗，不影响页面浏览
 - 自动排除当前页面 CID，避免重复
 
+[测试 IPFS 链接](https://gw-seattle.crustcloud.io/ipfs/bafybeihzpvolsy7kt2ug37nwau2d4a5cfcl3bvafsssphpdw7voi5rjadm?filename=wukong.png)
+
+[测试 IPNS 链接](https://gw-seattle.crustcloud.io/ipns/k51qzi5uqu5dh1ts2qvcw3069src00zyjw0qmwdkb102k8q4ft8bztw75iwi25)
+
 ## 更新日志 / Changelog
 
 ### v1.0.0 (2023-12-31)
