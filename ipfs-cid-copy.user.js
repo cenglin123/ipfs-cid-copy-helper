@@ -154,36 +154,50 @@
         try {
             const urlObj = new URL(url);
             
+            // 定义要排除的 CID
+            const excludedCIDs = [
+                'bafybeiczsscdsbs7ffqz55asqdf3smv6klcw3gofszvwlyarci47bgf354',
+                'QmUNLLsPACCz1vLxQVkXqqLX5R1X345qqfHbsf67hvA3Nn'
+            ];
+            
+            // 提取 CID 的逻辑
+            let extractedCID = null;
+            
             // 匹配子域名形式
             const subdomain = urlObj.hostname.split('.')[0];
             if (subdomain.match(/^(baf[a-zA-Z0-9]{1,}|Qm[a-zA-Z0-9]{44})$/i)) {
-                return subdomain;
+                extractedCID = subdomain;
             }
             if (subdomain.match(/^(k51[a-zA-Z0-9]{1,})$/i)) {
-                return subdomain;
+                extractedCID = subdomain;
             }
-
-            // 匹配路径中的IPFS CID - 添加对目录路径的支持
+    
+            // 匹配路径中的IPFS CID
             const ipfsPathMatch = urlObj.pathname.match(/\/ipfs\/(baf[a-zA-Z0-9]{1,}|Qm[a-zA-Z0-9]{44})/i) ||
                                 url.match(/\/ipfs\/(baf[a-zA-Z0-9]{1,}|Qm[a-zA-Z0-9]{44})/i);
             if (ipfsPathMatch) {
-                return ipfsPathMatch[1];
+                extractedCID = ipfsPathMatch[1];
             }
-
-            // 匹配IPNS密钥 - 包括目录形式
+    
+            // 匹配IPNS密钥
             const ipnsKeyMatch = urlObj.pathname.match(/\/ipns\/(k51[a-zA-Z0-9]{1,})/i) ||
                                url.match(/\/ipns\/(k51[a-zA-Z0-9]{1,})/i);
             if (ipnsKeyMatch) {
-                return ipnsKeyMatch[1];
+                extractedCID = ipnsKeyMatch[1];
             }
-
+    
             // 匹配路径中的独立IPNS密钥
             const ipnsPathMatch = urlObj.pathname.match(/(k51[a-zA-Z0-9]{1,})/i);
             if (ipnsPathMatch) {
-                return ipnsPathMatch[1];
+                extractedCID = ipnsPathMatch[1];
             }
-
-            return null;
+    
+            // 检查是否为排除的 CID
+            if (extractedCID && excludedCIDs.includes(extractedCID.toLowerCase())) {
+                return null;
+            }
+    
+            return extractedCID;
         } catch (e) {
             console.error('URL解析错误:', e);
             return null;
