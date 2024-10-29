@@ -32,6 +32,11 @@
 
 [测试 IPNS 链接](https://gw-seattle.crustcloud.io/ipns/k51qzi5uqu5dh1ts2qvcw3069src00zyjw0qmwdkb102k8q4ft8bztw75iwi25)
 
+点击配置和切换浮窗默认显示
+
+![Clip_2024-10-29_18-35-45](https://github.com/user-attachments/assets/05158531-d314-4406-978c-8616ad2bd4b8)
+
+
 ## 更新日志 / Changelog
 
 ### v1.0.0 (2023-12-31)
