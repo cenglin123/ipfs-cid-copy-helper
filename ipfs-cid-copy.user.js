@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         IPFS CID Copy Helper
 // @namespace    http://tampermonkey.net/
-// @version      1.4
+// @version      1.5
 // @description  自动为网页中的 IPFS 链接添加 CID 复制功能，右下角可以显示批量操作窗口。 支持多种 IPFS/IPNS 格式和批量复制。
 // @author       cenglin123
 // @match        *://*/*
@@ -153,54 +153,90 @@
     function extractCID(url) {
         try {
             const urlObj = new URL(url);
-            
+
             // 定义要排除的 CID
             const excludedCIDs = [
                 'bafybeiczsscdsbs7ffqz55asqdf3smv6klcw3gofszvwlyarci47bgf354',
                 'QmUNLLsPACCz1vLxQVkXqqLX5R1X345qqfHbsf67hvA3Nn'
             ];
-            
+
             let extractedCID = null;
-            
-            // 匹配子域名形式
-            const subdomain = urlObj.hostname.split('.')[0];
-            if (subdomain.match(/^(baf[yk][a-zA-Z0-9]{55}|Qm[a-zA-Z0-9]{44})$/i)) {
-                extractedCID = subdomain;
+
+            // 处理 crop.top 域名
+            if (isCropTop(url)) {
+                const subdomain = urlObj.hostname.split('.')[0];
+                if (subdomain.match(/^(baf[yk][a-zA-Z0-9]{55}|Qm[a-zA-Z0-9]{44})$/i)) {
+                    extractedCID = subdomain;
+                }
             }
-            // 匹配 IPNS key 
-            if (subdomain.match(/^k51[a-zA-Z0-9]{59}$/i)) {
-                extractedCID = subdomain;
+
+            // 如果不是 crop.top 或没有从子域名中提取到 CID，继续其他匹配
+            if (!extractedCID) {
+                // 匹配子域名形式
+                const subdomain = urlObj.hostname.split('.')[0];
+                if (subdomain.match(/^(baf[yk][a-zA-Z0-9]{55}|Qm[a-zA-Z0-9]{44})$/i)) {
+                    extractedCID = subdomain;
+                }
+                // 匹配 IPNS key
+                if (subdomain.match(/^k51[a-zA-Z0-9]{59}$/i)) {
+                    extractedCID = subdomain;
+                }
+
+                // 增强型路径匹配
+                // 1. 标准 /ipfs/CID 格式
+                const ipfsPathMatch = urlObj.pathname.match(/\/ipfs\/(baf[yk][a-zA-Z0-9]{55}|Qm[a-zA-Z0-9]{44})/i) ||
+                                    url.match(/\/ipfs\/(baf[yk][a-zA-Z0-9]{55}|Qm[a-zA-Z0-9]{44})/i);
+                if (ipfsPathMatch) {
+                    extractedCID = ipfsPathMatch[1];
+                }
+
+                // 2. 文件夹浏览模式 - 处理父目录中的 CID
+                if (!extractedCID) {
+                    const pathParts = urlObj.pathname.split('/');
+                    for (let i = 0; i < pathParts.length; i++) {
+                        if (pathParts[i].toLowerCase() === 'ipfs' && i + 1 < pathParts.length) {
+                            const potentialCID = pathParts[i + 1];
+                            if (potentialCID.match(/^(baf[yk][a-zA-Z0-9]{55}|Qm[a-zA-Z0-9]{44})$/i)) {
+                                extractedCID = potentialCID;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                // 匹配路径中的 IPNS key
+                const ipnsKeyMatch = urlObj.pathname.match(/\/ipns\/(k51[a-zA-Z0-9]{59})/i) ||
+                                   url.match(/\/ipns\/(k51[a-zA-Z0-9]{59})/i);
+                if (ipnsKeyMatch) {
+                    extractedCID = ipnsKeyMatch[1];
+                }
+
+                // 匹配路径中的独立 IPNS key
+                const ipnsPathMatch = urlObj.pathname.match(/(k51[a-zA-Z0-9]{59})/i);
+                if (ipnsPathMatch) {
+                    extractedCID = ipnsPathMatch[1];
+                }
             }
-    
-            // 匹配路径中的 IPFS CID
-            const ipfsPathMatch = urlObj.pathname.match(/\/ipfs\/(baf[yk][a-zA-Z0-9]{55}|Qm[a-zA-Z0-9]{44})/i) ||
-                                url.match(/\/ipfs\/(baf[yk][a-zA-Z0-9]{55}|Qm[a-zA-Z0-9]{44})/i);
-            if (ipfsPathMatch) {
-                extractedCID = ipfsPathMatch[1];
-            }
-    
-            // 匹配路径中的 IPNS key
-            const ipnsKeyMatch = urlObj.pathname.match(/\/ipns\/(k51[a-zA-Z0-9]{59})/i) ||
-                               url.match(/\/ipns\/(k51[a-zA-Z0-9]{59})/i);
-            if (ipnsKeyMatch) {
-                extractedCID = ipnsKeyMatch[1];
-            }
-    
-            // 匹配路径中的独立 IPNS key
-            const ipnsPathMatch = urlObj.pathname.match(/(k51[a-zA-Z0-9]{59})/i);
-            if (ipnsPathMatch) {
-                extractedCID = ipnsPathMatch[1];
-            }
-    
+
             // 检查是否为排除的 CID
             if (extractedCID && excludedCIDs.includes(extractedCID.toLowerCase())) {
                 return null;
             }
-    
+
             return extractedCID;
         } catch (e) {
             console.error('URL解析错误:', e);
             return null;
+        }
+    }
+
+    // 判断是否为文件浏览页面
+    function isIPFSBrowsingPage(url) {
+        try {
+            const pathname = new URL(url).pathname;
+            return pathname.includes('/ipfs/') && pathname.split('/').length > 3; // /ipfs/CID/ 后还有内容
+        } catch (e) {
+            return false;
         }
     }
 
@@ -392,20 +428,24 @@
         const href = link.href;
         if (!href) return;
 
-        const cid = extractCID(href);
-        const currentPageCID = extractCID(window.location.href);
-        
-        // 如果是当前页面的 CID 或当前目录下的链接，则不显示复制按钮
-        if (!cid || cid === currentPageCID) return;
+        const linkCID = extractCID(href);
+        if (!linkCID) return;
 
-        try {
-            const currentPageBase = window.location.origin + window.location.pathname.split('/').slice(0, -1).join('/');
-            const linkUrl = new URL(href);
-            const linkBase = linkUrl.origin + linkUrl.pathname.split('/').slice(0, -1).join('/');
-            if (linkBase === currentPageBase) return;
-        } catch (e) {
-            console.error('URL解析错误:', e);
+        // 在文件浏览页面或 crop.top 域名中，允许显示所有 CID（包括当前页面的 CID）
+        if (isIPFSBrowsingPage(window.location.href)) {
+            const linkType = detectLinkType(href);
+            const rect = link.getBoundingClientRect();
+            copyBtn.style.display = 'block';
+            copyBtn.style.top = `${rect.bottom + window.scrollY + 5}px`;
+            copyBtn.style.left = `${rect.left + (rect.width / 2) + window.scrollX}px`;
+            copyBtn.textContent = `复制 ${linkType}`;
+            copyBtn.onclick = () => copyToClipboard(linkCID, copyBtn);
+            return;
         }
+
+        // 非文件浏览页面保持原有逻辑
+        const currentPageCID = extractCID(window.location.href);
+        if (linkCID === currentPageCID) return;
 
         const linkType = detectLinkType(href);
         const rect = link.getBoundingClientRect();
@@ -413,7 +453,7 @@
         copyBtn.style.top = `${rect.bottom + window.scrollY + 5}px`;
         copyBtn.style.left = `${rect.left + (rect.width / 2) + window.scrollX}px`;
         copyBtn.textContent = `复制 ${linkType}`;
-        copyBtn.onclick = () => copyToClipboard(cid, copyBtn);
+        copyBtn.onclick = () => copyToClipboard(linkCID, copyBtn);
     });
 
     document.addEventListener('mouseout', function(e) {
