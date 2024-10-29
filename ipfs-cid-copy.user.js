@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         IPFS CID Copy Helper (With Text Support)
 // @namespace    http://tampermonkey.net/
-// @version      1.6
+// @version      1.7
 // @description  自动为网页中的 IPFS 链接和文本添加 CID 复制功能，支持普通文本中的 CID。
 // @author       cenglin123 (modified)
 // @match        *://*/*
@@ -423,7 +423,7 @@
     // 显示复制按钮
     function showCopyButton(x, y, cid, type) {
         copyBtn.style.display = 'block';
-        copyBtn.style.top = `${y + window.scrollY + 20}px`;
+        copyBtn.style.top = `${y + window.scrollY + 5}px`;
         copyBtn.style.left = `${x + window.scrollX}px`;
         copyBtn.textContent = `复制 ${type}`;
         copyBtn.onclick = () => {
@@ -492,6 +492,18 @@
     }
 
     // 链接悬停处理
+    function hideButton() {
+        if (hideTimeout) {
+            clearTimeout(hideTimeout);
+        }
+        hideTimeout = setTimeout(() => {
+            if (!isButtonHovered && !currentHoveredLink) {
+                copyBtn.style.display = 'none';
+            }
+        }, 100); // 添加100ms延迟
+    }
+
+    // 链接悬停处理
     document.addEventListener('mouseover', function(e) {
         const link = e.target.closest('a');
         if (link) {
@@ -520,11 +532,42 @@
 
     document.addEventListener('mouseout', function(e) {
         const link = e.target.closest('a');
-        if (link && !isMouseOverElement(link, e)) {
-            currentHoveredLink = null;
-            if (!isButtonHovered) {
-                copyBtn.style.display = 'none';
+        if (link) {
+            if (!isMouseOverElement(link, e)) {
+                currentHoveredLink = null;
+                hideButton();
             }
+        }
+    });
+
+    // 复制按钮自身的悬停处理
+    copyBtn.addEventListener('mouseover', function() {
+        isButtonHovered = true;
+        if (hideTimeout) {
+            clearTimeout(hideTimeout);
+        }
+    });
+
+    copyBtn.addEventListener('mouseout', function(e) {
+        isButtonHovered = false;
+        // 检查鼠标是否移动到了链接上
+        const relatedTarget = e.relatedTarget;
+        const isOverLink = relatedTarget && (relatedTarget.closest('a') === currentHoveredLink);
+
+        if (!isOverLink) {
+            hideButton();
+        }
+    });
+
+    // 处理在按钮和链接之间移动的情况
+    document.addEventListener('mousemove', function(e) {
+        const overLink = e.target.closest('a');
+        const overButton = e.target.closest('.ipfs-copy-btn');
+
+        if (!overLink && !overButton) {
+            currentHoveredLink = null;
+            isButtonHovered = false;
+            hideButton();
         }
     });
 
