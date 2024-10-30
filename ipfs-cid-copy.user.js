@@ -3,11 +3,14 @@
 // @namespace    http://tampermonkey.net/
 // @version      1.8
 // @description  自动为网页中的 IPFS 链接和文本添加 CID 复制功能，支持普通文本中的 CID。
-// @author       cenglin123 (modified)
+// @author       cenglin123
 // @match        *://*/*
 // @grant        GM_addStyle
 // @grant        GM_registerMenuCommand
 // @homepage     https://github.com/cenglin123/ipfs-cid-copy-helper
+// @updateURL    https://github.com/cenglin123/ipfs-cid-copy-helper/raw/main/ipfs-cid-copy.user.js
+// @downloadURL  https://github.com/cenglin123/ipfs-cid-copy-helper/raw/main/ipfs-cid-copy.user.js
+// @supportURL   https://github.com/cenglin123/ipfs-cid-copy-helper/issues
 // @license MIT
 // ==/UserScript==
 
