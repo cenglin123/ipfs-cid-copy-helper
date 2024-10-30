@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         IPFS CID Copy Helper (With Text Support)
+// @name         IPFS CID Copy Helper
 // @namespace    http://tampermonkey.net/
-// @version      1.7
+// @version      1.8
 // @description  自动为网页中的 IPFS 链接和文本添加 CID 复制功能，支持普通文本中的 CID。
 // @author       cenglin123 (modified)
 // @match        *://*/*
@@ -36,12 +36,15 @@
             position: fixed;
             bottom: 20px;
             right: 20px;
-            display: flex;
+            display: none; /* 默认隐藏 */
             flex-direction: column;
             gap: 10px;
             z-index: 10000;
             transition: transform 0.3s ease;
-            min-height: 100px;
+            height: 150px;
+        }
+        .ipfs-batch-buttons.visible {
+            display: flex; /* 显示时改为 flex */
         }
         .ipfs-batch-buttons.collapsed {
             transform: translateX(calc(100% + 20px));
@@ -117,6 +120,10 @@
 
     const batchButtonsContainer = document.createElement('div');
     batchButtonsContainer.className = 'ipfs-batch-buttons';
+    // 根据默认设置决定是否添加 collapsed 类
+    if (localStorage.getItem('ipfsCopyHelperDefaultCollapsed') === 'true') {
+        batchButtonsContainer.classList.add('collapsed');
+    }
     document.body.appendChild(batchButtonsContainer);
 
     const toggleBtn = document.createElement('button');
@@ -307,10 +314,20 @@
             el.textContent = count;
         });
 
-        [batchCopyBtn, batchDownloadBtn, batchFilenameBtn].forEach(btn => {
-            btn.style.display = count > 0 ? 'block' : 'none';
-        });
+        // 修改：根据是否有 CID 来显示/隐藏整个浮窗
+        if (count > 0) {
+            batchButtonsContainer.classList.add('visible');
+            [batchCopyBtn, batchDownloadBtn, batchFilenameBtn].forEach(btn => {
+                btn.style.display = 'block';
+            });
+        } else {
+            batchButtonsContainer.classList.remove('visible');
+            [batchCopyBtn, batchDownloadBtn, batchFilenameBtn].forEach(btn => {
+                btn.style.display = 'none';
+            });
+        }
     }
+
 
     function extractFilename(url, linkText) {
         const filenameParam = new URL(url).searchParams.get('filename');
