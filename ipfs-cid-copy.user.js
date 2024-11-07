@@ -1,12 +1,14 @@
 // ==UserScript==
 // @name         IPFS CID Copy Helper
 // @namespace    http://tampermonkey.net/
-// @version      1.9
+// @version      2.1
 // @description  自动为网页中的 IPFS 链接和文本添加 CID 复制功能，支持普通文本中的 CID。
 // @author       cenglin123
 // @match        *://*/*
 // @grant        GM_addStyle
 // @grant        GM_registerMenuCommand
+// @grant        GM_getValue
+// @grant        GM_setValue
 // @homepage     https://github.com/cenglin123/ipfs-cid-copy-helper
 // @updateURL    https://github.com/cenglin123/ipfs-cid-copy-helper/raw/main/ipfs-cid-copy.user.js
 // @downloadURL  https://github.com/cenglin123/ipfs-cid-copy-helper/raw/main/ipfs-cid-copy.user.js
@@ -106,7 +108,173 @@
         .collapsed .ipfs-toggle-btn svg {
             transform: rotate(0deg);
         }
+        .ipfs-config-panel {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            z-index: 10001;
+            max-width: 600px;
+            width: 90%;
+            max-height: 80vh;
+            display: none;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .ipfs-config-panel.visible {
+            display: flex;
+        }
+        
+        .ipfs-config-panel textarea {
+            width: 100%;
+            height: 200px;
+            margin: 10px 0;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            resize: vertical;
+        }
+        
+        .ipfs-config-panel .button-group {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+        
+        .ipfs-config-panel button {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            background: #4a90e2;
+            color: white;
+        }
+        
+        .ipfs-config-panel button:hover {
+            background: #357abd;
+        }
+        
+        .ipfs-config-panel h2 {
+            margin: 0 0 10px 0;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        .ipfs-config-panel .help-text {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 10px;
+        }
     `);
+
+    // 创建配置面板
+    const configPanel = document.createElement('div');
+    configPanel.className = 'ipfs-config-panel';
+    configPanel.innerHTML = `
+        <h2>排除网址管理</h2>
+        <div class="help-text">
+            每行一个网址。支持以下格式：<br>
+            - 完整网址: https://example.com/page<br>
+            - 通配符匹配: https://example.com/admin/*<br>
+            - 关键词匹配: *example.com*
+        </div>
+        <textarea id="excludeUrlList" placeholder="在此输入要排除的网址，每行一个"></textarea>
+        <div class="button-group">
+            <button id="addCurrentUrl">添加当前页面</button>
+            <button id="saveExcludeList">保存</button>
+            <button id="cancelConfig">取消</button>
+        </div>
+    `;
+    document.body.appendChild(configPanel);
+
+    // 获取排除列表
+    function getExcludedUrls() {
+        return GM_getValue('excludedUrls', []);
+    }
+
+    // 保存排除列表
+    function saveExcludedUrls(urls) {
+        GM_setValue('excludedUrls', urls);
+    }
+
+    // 将URL模式转换为正则表达式
+    function urlPatternToRegex(pattern) {
+        let escapedPattern = pattern
+            .replace(/[.*+?^${}()|[\]\\]/g, '\\$&') // 转义特殊字符
+            .replace(/\\\*/g, '.*'); // 还原 * 为通配符
+        return new RegExp(`^${escapedPattern}`, 'i');
+    }
+
+    // 检查URL是否在排除列表中
+    function isExcludedPage() {
+        const currentUrl = window.location.href;
+        const excludedUrls = getExcludedUrls();
+        
+        return excludedUrls.some(pattern => {
+            const regex = urlPatternToRegex(pattern);
+            return regex.test(currentUrl);
+        });
+    }
+
+    // 显示配置面板
+    function showConfigPanel() {
+        const excludedUrls = getExcludedUrls();
+        document.getElementById('excludeUrlList').value = excludedUrls.join('\n');
+        configPanel.classList.add('visible');
+    }
+
+    // 注册菜单命令
+    GM_registerMenuCommand('管理排除网址', showConfigPanel);
+
+    // 事件处理
+    document.getElementById('addCurrentUrl').addEventListener('click', () => {
+        const textarea = document.getElementById('excludeUrlList');
+        const currentUrl = window.location.href;
+        const urls = textarea.value.split('\n').filter(url => url.trim());
+        
+        if (!urls.includes(currentUrl)) {
+            urls.push(currentUrl);
+            textarea.value = urls.join('\n');
+        }
+    });
+
+    // 在保存排除列表后添加清理功能
+    document.getElementById('saveExcludeList').addEventListener('click', () => {
+        const urls = document.getElementById('excludeUrlList').value
+            .split('\n')
+            .map(url => url.trim())
+            .filter(url => url);
+        
+        saveExcludedUrls(urls);
+        configPanel.classList.remove('visible');
+        
+        // 保存后检查并清理
+        if (isExcludedPage()) {
+            observer.disconnect();
+            // 清理已有的批量按钮和其他UI元素
+            batchButtonsContainer.classList.remove('visible');
+            copyBtn.style.display = 'none';
+            // 清理 linkInfo
+            linkInfo.clear();
+            console.log('当前页面已被添加到排除列表，已停止扫描');
+        } else {
+            // 重新初始化
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true
+            });
+            initPageScan();
+        }
+    });
+
+    document.getElementById('cancelConfig').addEventListener('click', () => {
+        configPanel.classList.remove('visible');
+    });
 
     // CID 正则表达式模式
     const CID_PATTERNS = [
@@ -242,36 +410,6 @@
         }
     }
 
-    // 查找文本中的 CID
-    function findCIDInText(text) {
-        for (const pattern of CID_PATTERNS) {
-            const match = text.match(pattern);
-            if (match) {
-                return {
-                    cid: match[1],
-                    type: match[1].startsWith('k51') ? 'IPNS Key' : 'IPFS CID'
-                };
-            }
-        }
-        return null;
-    }
-
-    // 获取选中文本
-    function getSelectedText() {
-        const selection = window.getSelection();
-        if (selection.rangeCount === 0) return null;
-
-        const range = selection.getRangeAt(0);
-        const text = range.toString().trim();
-
-        if (text.length === 0) return null;
-
-        return {
-            text: text,
-            range: range
-        };
-    }
-
     // 判断是否为文件浏览页面
     function isIPFSBrowsingPage(url) {
         try {
@@ -285,10 +423,15 @@
     // 扫描页面中的文本节点
     // 扫描文本节点并添加监听器
     function scanTextNodes(node) {
+        // 首先检查是否在排除列表中
+        if (isExcludedPage()) {
+            return;
+        }
+
         if (node.nodeType === Node.TEXT_NODE) {
             let hasMatch = false;
             let matches = [];
-            
+
             // 收集所有匹配
             for (const pattern of CID_PATTERNS) {
                 const patternMatches = [...node.textContent.matchAll(new RegExp(pattern, 'g'))];
@@ -307,12 +450,16 @@
                 matches.forEach(match => {
                     const cid = match[0];
                     const type = cid.startsWith('k51') ? 'IPNS Key' : 'IPFS CID';
-                    linkInfo.set(cid, {
-                        type: type,
-                        url: null,
-                        text: cid,
-                        filename: null
-                    });
+                    // 只有当这个 CID 还不存在时才添加
+                    if (!linkInfo.has(cid)) {
+                        linkInfo.set(cid, {
+                            type: type,
+                            url: null,
+                            text: cid,
+                            filename: null,
+                            isLink: false // 标记这是文本
+                        });
+                    }
 
                     // 为每个CID创建一个内部span
                     const cidSpan = document.createElement('span');
@@ -346,7 +493,7 @@
 
                 node.parentNode.replaceChild(container, node);
             }
-        } else if (node.nodeType === Node.ELEMENT_NODE && 
+        } else if (node.nodeType === Node.ELEMENT_NODE &&
                    !['SCRIPT', 'STYLE', 'TEXTAREA', 'A'].includes(node.tagName)) {
             Array.from(node.childNodes).forEach(scanTextNodes);
         }
@@ -354,39 +501,48 @@
 
     // 扫描页面函数
     function scanPageForLinks() {
+        // 首先检查是否在排除列表中
+        if (isExcludedPage()) {
+            console.log('当前页面在排除列表中，停止扫描');
+            // 清理已有的批量按钮
+            batchButtonsContainer.classList.remove('visible');
+            return;
+        }
+    
         linkInfo.clear();
-
-        // 扫描链接
+    
+        // 先扫描文本节点，确保文本 CID 在后面
+        scanTextNodes(document.body);
+    
+        // 再扫描链接
         const currentPageCID = extractCID(window.location.href);
         const currentPageBase = window.location.origin + window.location.pathname.split('/').slice(0, -1).join('/');
-
+    
         const links = document.getElementsByTagName('a');
         for (const link of links) {
             const cid = extractCID(link.href);
             if (!cid || cid === currentPageCID) continue;
-
+    
             try {
                 const linkUrl = new URL(link.href);
                 const linkBase = linkUrl.origin + linkUrl.pathname.split('/').slice(0, -1).join('/');
                 if (linkBase === currentPageBase) continue;
+    
+                const existingInfo = linkInfo.get(cid);
+                const filename = extractFilename(link.href, link.textContent);
+    
+                linkInfo.set(cid, {
+                    type: detectLinkType(link.href),
+                    url: link.href,
+                    text: link.textContent.trim(),
+                    filename: filename,
+                    isLink: true
+                });
             } catch (e) {
                 console.error('URL解析错误:', e);
-                continue;
             }
-
-            const filename = extractFilename(link.href, link.textContent);
-            linkInfo.set(cid, {
-                type: detectLinkType(link.href),
-                url: link.href,
-                text: link.textContent.trim(),
-                filename: filename
-            });
         }
-
-        // 扫描文本节点
-        scanTextNodes(document.body);
-
-        // 更新计数器和显示状态
+    
         updateBatchButtons();
     }
 
@@ -472,49 +628,146 @@
         localStorage.setItem('ipfsCopyHelperCollapsed', isCollapsed);
     }
 
-    function batchCopyCIDs() {
-        const cids = Array.from(linkInfo.keys());
-        if (cids.length > 0) {
-            const formattedCIDs = cids.join('\n');
-            copyToClipboard(formattedCIDs, batchCopyBtn);
-        }
-    }
-
-    function batchCopyFilenames() {
-        const filenames = Array.from(linkInfo.values())
-            .map(info => info.filename || '未知文件名')
-            .filter(filename => filename !== '未知文件名');
-
-        if (filenames.length > 0) {
-            const formattedFilenames = filenames.join('\n');
-            copyToClipboard(formattedFilenames, batchFilenameBtn);
-        } else {
-            batchFilenameBtn.textContent = '没有可用的文件名';
-            setTimeout(() => {
-                batchFilenameBtn.innerHTML = '批量复制文件名 <span class="ipfs-copy-count">' +
-                    linkInfo.size + '</span>';
-            }, 1000);
-        }
-    }
-
-    function batchCopyDownloadLinks() {
-        const links = Array.from(linkInfo.values()).map(info => {
-            let url = info.url;
-            if (info.filename && !url.includes('?filename=')) {
-                url += (url.includes('?') ? '&' : '?') + 'filename=' +
-                    encodeURIComponent(info.filename);
-            }
-            return url;
+    // 首先，将所有计数器更新统一到一个函数中
+    function updateCounters(count) {
+        // 更新所有计数器元素为确切的数值
+        const countElements = document.querySelectorAll('.ipfs-copy-count');
+        countElements.forEach(el => {
+            el.textContent = count.toString(); // 强制转换为字符串
         });
+    }
 
-        if (links.length > 0) {
-            const formattedLinks = links.join('\n');
-            copyToClipboard(formattedLinks, batchDownloadBtn);
+    function batchCopyItems(type, button) {
+        const currentPageCID = extractCID(window.location.href);
+        
+        const sortedEntries = Array.from(linkInfo.entries())
+            .filter(([cid]) => cid !== currentPageCID)
+            .sort((a, b) => {
+                if (!!a[1].isLink === !!b[1].isLink) return 0;
+                return a[1].isLink ? -1 : 1;
+            });
+        
+        const exactCount = sortedEntries.length;
+        updateCounters(exactCount);
+        
+        if (exactCount === 0) {
+            button.textContent = '没有可用的项目';
+            setTimeout(() => {
+                button.innerHTML = `批量复制${type === 'cid' ? 'CID' : 
+                                  type === 'filename' ? '文件名' : 
+                                  '下载链接'} <span class="ipfs-copy-count">${exactCount}</span>`;
+            }, 1000);
+            return;
         }
+    
+        const items = sortedEntries.map(([cid, info]) => {
+            // 尝试从文本内容中提取 filename 参数
+            let filenameFromText = null;
+            if (!info.isLink && info.text) {
+                // 查找 CID 后面的 filename 参数，直到遇到换行符或字符串结束
+                const cidIndex = info.text.indexOf(cid);
+                if (cidIndex !== -1) {
+                    const afterCid = info.text.slice(cidIndex + cid.length);
+                    const filenameMatch = afterCid.match(/[?&]filename=([^&\n\r]+)/);
+                    if (filenameMatch) {
+                        try {
+                            filenameFromText = decodeURIComponent(filenameMatch[1]);
+                        } catch (e) {
+                            console.error('文件名解码错误:', e);
+                        }
+                    }
+                }
+            }
+    
+            switch (type) {
+                case 'cid':
+                    return cid;
+                    
+                case 'filename':
+                    // 优先级：显式文件名 > 文本中的 filename 参数 > CID
+                    if (info.filename && !info.filename.includes('/ipfs/')) {
+                        return info.filename;
+                    }
+                    if (filenameFromText) {
+                        return filenameFromText;
+                    }
+                    return cid;
+                    
+                case 'url':
+                    if (info.isLink && info.url) {
+                        let url = info.url;
+                        // 优先使用已有的文件名
+                        const validFilename = info.filename && !info.filename.includes('/ipfs/') 
+                            ? info.filename 
+                            : (filenameFromText || cid);
+                        if (!url.includes('?filename=')) {
+                            url += (url.includes('?') ? '&' : '?') + 'filename=' + 
+                                encodeURIComponent(validFilename);
+                        }
+                        return url;
+                    }
+                    // 对于文本CID，使用检测到的文件名（如果有）
+                    const filename = filenameFromText || cid;
+                    return `https://ipfs.io/ipfs/${cid}?filename=${encodeURIComponent(filename)}`;
+                    
+                default:
+                    return cid;
+            }
+        });
+    
+        const formattedItems = items.join('\n');
+        copyToClipboard(formattedItems, button);
+    }
+    
+    // 更新计数显示的辅助函数
+    function updateBatchButtons() {
+        const currentPageCID = extractCID(window.location.href);
+        const totalCount = linkInfo.size;
+        const effectiveCount = currentPageCID ? totalCount - 1 : totalCount;
+        
+        // 使用统一的计数器更新函数
+        updateCounters(effectiveCount);
+        
+        if (effectiveCount > 0) {
+            batchButtonsContainer.classList.add('visible');
+            
+            // 更新按钮可见性
+            [batchCopyBtn, batchDownloadBtn, batchFilenameBtn].forEach(btn => {
+                btn.style.display = 'block';
+            });
+            
+            // 使用一致的计数更新按钮文本
+            batchCopyBtn.innerHTML = `批量复制CID <span class="ipfs-copy-count">${effectiveCount}</span>`;
+            batchDownloadBtn.innerHTML = `批量复制下载链接 <span class="ipfs-copy-count">${effectiveCount}</span>`;
+            batchFilenameBtn.innerHTML = `批量复制文件名 <span class="ipfs-copy-count">${effectiveCount}</span>`;
+        } else {
+            batchButtonsContainer.classList.remove('visible');
+            [batchCopyBtn, batchDownloadBtn, batchFilenameBtn].forEach(btn => {
+                btn.style.display = 'none';
+            });
+        }
+    }
+    
+    // 调用统一的处理函数
+    function batchCopyCIDs() {
+        batchCopyItems('cid', batchCopyBtn);
+    }
+    
+    function batchCopyFilenames() {
+        batchCopyItems('filename', batchFilenameBtn);
+    }
+    
+    function batchCopyDownloadLinks() {
+        batchCopyItems('url', batchDownloadBtn);
     }
 
     // 显示复制按钮
     function showCopyButton(x, y, cid, type) {
+        // 如果在排除列表中，不显示按钮
+        if (isExcludedPage()) {
+            return;
+        }
+    
         // 清除可能存在的定时器
         if (hideTimeout) {
             clearTimeout(hideTimeout);
@@ -542,13 +795,19 @@
 
     // 修改隐藏按钮函数
     function hideButton() {
+        // 如果在排除列表中，确保按钮隐藏
+        if (isExcludedPage()) {
+            copyBtn.style.display = 'none';
+            return;
+        }
+    
         if (hideTimeout) {
             clearTimeout(hideTimeout);
         }
         if (showTimeout) {
             clearTimeout(showTimeout);
         }
-        
+    
         hideTimeout = setTimeout(() => {
             if (!isButtonHovered && !currentHoveredElement) {
                 copyBtn.style.display = 'none';
@@ -556,57 +815,40 @@
         }, 150);
     }
 
-    // 初始化文本选择功能
-    function initTextSelection() {
-        document.addEventListener('mouseup', function(e) {
-            if (e.target.classList.contains('ipfs-copy-btn')) return;
-
-            setTimeout(() => {
-                const selection = getSelectedText();
-                if (!selection) return;
-
-                const cidInfo = findCIDInText(selection.text);
-                if (cidInfo) {
-                    const rect = selection.range.getBoundingClientRect();
-                    showCopyButton(
-                        rect.left + (rect.width / 2),
-                        rect.bottom,
-                        cidInfo.cid,
-                        cidInfo.type
-                    );
-                }
-            }, 10);
-        });
-
-        // 点击其他地方时隐藏按钮
-        document.addEventListener('mousedown', function(e) {
-            if (!e.target.classList.contains('ipfs-copy-btn')) {
-                copyBtn.style.display = 'none';
-            }
-        });
-    }
-
     let scanTimeout;
     function initPageScan() {
+        if (isExcludedPage()) {
+            console.log('当前页面在排除列表中，不初始化扫描');
+            // 确保批量按钮被隐藏
+            batchButtonsContainer.classList.remove('visible');
+            return;
+        }
+    
         if (scanTimeout) {
             clearTimeout(scanTimeout);
         }
         scanTimeout = setTimeout(scanPageForLinks, 1000);
     }
 
-    // 修改状态变量，统一管理
+    // 初始化状态变量
     let currentHoveredElement = null;
+    let currentHoveredLink = null;  // 添加这个变量声明
     let isButtonHovered = false;
     let hideTimeout = null;
-    let showTimeout = null;  // 新增：用于控制显示延迟
+    let showTimeout = null;
 
     // 统一处理文本和链接的悬停
     function handleElementHover(element, cid, type) {
+        // 首先检查是否在排除列表中
+        if (isExcludedPage()) {
+            return;
+        }
+    
         if (currentHoveredElement === element) return;  // 如果是同一个元素，不重复处理
-        
+    
         currentHoveredElement = element;
         const rect = element.getBoundingClientRect();
-        
+    
         // 使用延时显示，避免快速划过时的闪烁
         if (showTimeout) {
             clearTimeout(showTimeout);
@@ -618,58 +860,16 @@
                 cid,
                 type
             );
-        }, 50);  // 50ms 的延迟，平衡响应速度和防抖动
+        }, 50);
     }
 
-    // 更新批量按钮状态
-    function updateBatchButtons() {
-        const count = linkInfo.size;
-        const countElements = document.querySelectorAll('.ipfs-copy-count');
-        countElements.forEach(el => {
-            el.textContent = count;
-        });
-
-        if (count > 0) {
-            batchButtonsContainer.classList.add('visible');
-            [batchCopyBtn, batchDownloadBtn, batchFilenameBtn].forEach(btn => {
-                btn.style.display = 'block';
-            });
-        } else {
-            batchButtonsContainer.classList.remove('visible');
-            [batchCopyBtn, batchDownloadBtn, batchFilenameBtn].forEach(btn => {
-                btn.style.display = 'none';
-            });
-        }
-    }
-
-    // 链接上的悬停处理
+    // mouseover 事件处理
     document.addEventListener('mouseover', function(e) {
-        const link = e.target.closest('a');
-        if (link) {
-            currentHoveredLink = link;
-            const href = link.href;
-            if (!href) return;
-
-            const linkCID = extractCID(href);
-            if (!linkCID) return;
-
-            const shouldShow = isIPFSBrowsingPage(window.location.href) ||
-                             linkCID !== extractCID(window.location.href);
-
-            if (shouldShow) {
-                const linkType = detectLinkType(href);
-                const rect = link.getBoundingClientRect();
-                showCopyButton(
-                    rect.left + (rect.width / 2),
-                    rect.bottom,
-                    linkCID,
-                    linkType
-                );
-            }
+        // 如果在排除列表中，直接返回
+        if (isExcludedPage()) {
+            return;
         }
-    });
-
-    document.addEventListener('mouseover', function(e) {
+    
         // 处理链接
         const link = e.target.closest('a');
         if (link) {
@@ -695,39 +895,21 @@
             return;
         }
     });
-    
+
+    // mouseout 事件处理
     document.addEventListener('mouseout', function(e) {
         const relatedTarget = e.relatedTarget;
-        if (!relatedTarget || 
-            (!relatedTarget.closest('.ipfs-copy-btn') && 
-             !relatedTarget.dataset?.cid && 
-             !relatedTarget.closest('a'))) {
+        if (!relatedTarget ||
+            (!relatedTarget.closest('.ipfs-copy-btn') &&
+            !relatedTarget.dataset?.cid &&
+            !relatedTarget.closest('a'))) {
             currentHoveredElement = null;
+            currentHoveredLink = null;  // 重置当前悬停的链接
             hideButton();
         }
     });
 
-    // 复制按钮自身的悬停处理
-    copyBtn.addEventListener('mouseover', function() {
-        isButtonHovered = true;
-        if (hideTimeout) {
-            clearTimeout(hideTimeout);
-        }
-        if (showTimeout) {
-            clearTimeout(showTimeout);
-        }
-    });
-    
-    copyBtn.addEventListener('mouseout', function(e) {
-        isButtonHovered = false;
-        const relatedTarget = e.relatedTarget;
-        if (!relatedTarget || 
-            (!relatedTarget.dataset?.cid && 
-             !relatedTarget.closest('a'))) {
-            hideButton();
-        }
-    });
-
+    // mousemove 事件处理
     // 处理在按钮和链接之间移动的情况
     document.addEventListener('mousemove', function(e) {
         const overLink = e.target.closest('a');
@@ -740,9 +922,52 @@
         }
     });
 
-    // 观察DOM变化
-    const observer = new MutationObserver(() => {
+    // 按钮的悬停处理
+    copyBtn.addEventListener('mouseover', function() {
+        if (isExcludedPage()) {
+            return;
+        }
+        isButtonHovered = true;
+        if (hideTimeout) {
+            clearTimeout(hideTimeout);
+        }
+        if (showTimeout) {
+            clearTimeout(showTimeout);
+        }
+    });
+
+    copyBtn.addEventListener('mouseout', function(e) {
+        if (isExcludedPage()) {
+            return;
+        }
+        isButtonHovered = false;
+        const relatedTarget = e.relatedTarget;
+        if (!relatedTarget ||
+            (!relatedTarget.dataset?.cid &&
+             !relatedTarget.closest('a'))) {
+            hideButton();
+        }
+    });
+
+    // observer 的设置，观察DOM变化
+    const observer = new MutationObserver((mutations) => {
+        if (isExcludedPage()) {
+            observer.disconnect(); // 如果页面在排除列表中，停止观察
+            batchButtonsContainer.classList.remove('visible');
+            return;
+        }
         initPageScan();
+    });
+
+    // DOM 初始化代码
+    document.addEventListener('DOMContentLoaded', () => {
+        if (!isExcludedPage()) {
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true
+            });
+            initPageScan();
+        }
     });
 
     observer.observe(document.body, {
@@ -775,6 +1000,6 @@
     toggleBtn.addEventListener('click', toggleCollapse);
 
     // 启动文本选择功能和初始扫描
-    initTextSelection();
+    // initTextSelection();
     initPageScan();
 })();
