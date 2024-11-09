@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         IPFS CID Copy Helper
 // @namespace    http://tampermonkey.net/
-// @version      2.2
+// @version      2.3
 // @description  自动为网页中的 IPFS 链接和文本添加 CID 复制功能，支持普通文本中的 CID。
 // @author       cenglin123
 // @match        *://*/*
@@ -382,6 +382,26 @@
     function isIPFSBrowsingPage(url) {
         try {
             const urlObj = new URL(url);
+            
+            // 检查子域名形式（支持 .ipfs. 和 .eth. 形式）
+            const hostParts = urlObj.hostname.split('.');
+            if (hostParts.length >= 3) {
+                const possibleCid = hostParts[0];
+                // 如果子域名是有效的 CID
+                if (extractCID(possibleCid)) {
+                    // 检查是否包含 .ipfs. 或 .eth. 
+                    const isIpfsDomain = hostParts.some((part, index) => 
+                        index < hostParts.length - 1 && 
+                        (part === 'ipfs' || part === 'eth')
+                    );
+                    // 如果是子域名形式，且路径长度大于1（不只是根路径），则认为是浏览页面
+                    if (isIpfsDomain && urlObj.pathname.length > 1) {
+                        return true;
+                    }
+                }
+            }
+            
+            // 检查路径形式
             if (!urlObj.pathname.includes('/ipfs/')) {
                 return false;
             }
@@ -394,7 +414,9 @@
             // 普通文件浏览页面检查
             const parts = urlObj.pathname.split('/');
             return parts.length > 3;
+            
         } catch (e) {
+            console.error('URL解析错误:', e);
             return false;
         }
     }
@@ -616,50 +638,22 @@
         });
     }
 
+    // 批量复制函数
     function batchCopyItems(type, button) {
-        const currentPageCID = extractCID(window.location.href);
+        const validEntries = getValidEntries();
+        const totalCount = validEntries.length;
         
-        // 定义要排除的空文件夹 CID
-        const excludedCIDs = [
-            'bafybeiczsscdsbs7ffqz55asqdf3smv6klcw3gofszvwlyarci47bgf354',
-            'QmUNLLsPACCz1vLxQVkXqqLX5R1X345qqfHbsf67hvA3Nn'
-        ];
-        
-        // 获取并过滤条目
-        const sortedEntries = Array.from(linkInfo.entries())
-            .filter(([cid]) => {
-                // 排除当前页面的 CID
-                if (cid === currentPageCID) return false;
-                
-                // 排除空文件夹 CID（根据CID版本选择比较方式）
-                return !excludedCIDs.some(excluded => {
-                    // CID v0 (Qm开头) - 大小写敏感
-                    if (excluded.startsWith('Qm')) {
-                        return excluded === cid;
-                    }
-                    // CID v1 (baf开头) - 大小写不敏感
-                    return excluded.toLowerCase() === cid.toLowerCase();
-                });
-            })
-            .sort((a, b) => {
-                if (!!a[1].isLink === !!b[1].isLink) return 0;
-                return a[1].isLink ? -1 : 1;
-            });
-        
-        const exactCount = sortedEntries.length;
-        updateCounters(exactCount);
-        
-        if (exactCount === 0) {
+        if (totalCount === 0) {
             button.textContent = '没有可用的项目';
             setTimeout(() => {
                 button.innerHTML = `批量复制${type === 'cid' ? 'CID' : 
-                                  type === 'filename' ? '文件名' : 
-                                  '下载链接'} <span class="ipfs-copy-count">${exactCount}</span>`;
+                                type === 'filename' ? '文件名' : 
+                                '下载链接'} <span class="ipfs-copy-count">${totalCount}</span>`;
             }, 1000);
             return;
         }
-    
-        const items = sortedEntries.map(([cid, info]) => {
+
+        const items = validEntries.map(([cid, info]) => {
             let filenameFromText = null;
             if (!info.isLink && info.text) {
                 const cidIndex = info.text.indexOf(cid);
@@ -675,7 +669,7 @@
                     }
                 }
             }
-    
+
             switch (type) {
                 case 'cid':
                     return cid;
@@ -701,7 +695,6 @@
                         }
                         return url;
                     }
-                    // 使用用户设置的网关或默认网关
                     const gateway = getGateway();
                     const filename = filenameFromText || cid;
                     return `${gateway}/ipfs/${cid}?filename=${encodeURIComponent(filename)}`;
@@ -710,51 +703,47 @@
                     return cid;
             }
         });
-    
+
         const formattedItems = items.join('\n');
         copyToClipboard(formattedItems, button);
     }
-    
-    // 更新批量按钮函数
-    function updateBatchButtons() {
-        const currentUrl = window.location.href;
-        const currentPageCID = isIPFSBrowsingPage(currentUrl) ? extractCID(currentUrl) : null;
-        
-        // 定义要排除的 CID
+
+    function getValidEntries() {
+        // 定义要排除的 CID 列表
         const excludedCIDs = [
             'bafybeiczsscdsbs7ffqz55asqdf3smv6klcw3gofszvwlyarci47bgf354',
             'QmUNLLsPACCz1vLxQVkXqqLX5R1X345qqfHbsf67hvA3Nn'
         ];
+        const currentPageCID = extractCID(window.location.href);
         
-        // 获取所有条目
-        const allEntries = Array.from(linkInfo.entries());
-        
-        // 过滤掉空文件夹 CID
-        const validEntries = allEntries.filter(([cid, info]) => {
-            if (info.isLink && info.url) {
-                return extractCID(info.url) !== null;
-            }
-            return extractCID(cid) !== null;
-        });
-        
-        // 计算有多少条目是空文件夹
-        const emptyFolderCount = allEntries.filter(([cid]) => 
-            excludedCIDs.includes(cid.toLowerCase())
-        ).length;
-        
-        // 计算当前页面 CID 减去的数量
-        const currentPageDeduction = currentPageCID && 
-            validEntries.some(([cid]) => cid === currentPageCID) ? 1 : 0;
-        
-        // 计算最终有效计数
+        // 获取并过滤条目
+        return Array.from(linkInfo.entries())
+            .filter(([cid]) => {
+                // 排除当前页面的 CID
+                if (cid === currentPageCID) return false;
+                
+                // 排除空文件夹 CID（根据CID版本选择比较方式）
+                return !excludedCIDs.some(excluded => {
+                    // CID v0 (Qm开头) - 大小写敏感
+                    if (excluded.startsWith('Qm')) {
+                        return excluded === cid;
+                    }
+                    // CID v1 (baf开头) - 大小写不敏感
+                    return excluded.toLowerCase() === cid.toLowerCase();
+                });
+            });
+    }
+    
+    // 更新显示计数的函数
+    function updateBatchButtons() {
+        const validEntries = getValidEntries();
         const totalCount = validEntries.length;
-        const effectiveCount = totalCount - emptyFolderCount - currentPageDeduction;
         
         if (totalCount > 0) {
             batchButtonsContainer.classList.add('visible');
             [batchCopyBtn, batchDownloadBtn, batchFilenameBtn].forEach(btn => {
                 btn.style.display = 'block';
-                btn.innerHTML = `${btn.innerHTML.split('<')[0]}<span class="ipfs-copy-count">${effectiveCount}</span>`;
+                btn.innerHTML = `${btn.innerHTML.split('<')[0]}<span class="ipfs-copy-count">${totalCount}</span>`;
             });
         } else {
             batchButtonsContainer.classList.remove('visible');
