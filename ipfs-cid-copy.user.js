@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         IPFS CID Copy Helper
 // @namespace    http://tampermonkey.net/
-// @version      2.1
+// @version      2.2
 // @description  自动为网页中的 IPFS 链接和文本添加 CID 复制功能，支持普通文本中的 CID。
 // @author       cenglin123
 // @match        *://*/*
@@ -321,21 +321,9 @@
     batchDownloadBtn.innerHTML = '批量复制下载链接 <span class="ipfs-copy-count">0</span>';
     batchButtonsContainer.appendChild(batchDownloadBtn);
 
-    // 检查是否为 .crop.top 域名
-    function isCropTop(url) {
-        try {
-            const hostname = new URL(url).hostname;
-            return hostname.endsWith('.crop.top');
-        } catch (e) {
-            return false;
-        }
-    }
-
     // 提取CID函数
-    function extractCID(url) {
+    function extractCID(input) {
         try {
-            const urlObj = new URL(url);
-
             // 定义要排除的 CID
             const excludedCIDs = [
                 'bafybeiczsscdsbs7ffqz55asqdf3smv6klcw3gofszvwlyarci47bgf354',
@@ -343,58 +331,38 @@
             ];
 
             let extractedCID = null;
-
-            // 处理 crop.top 域名
-            if (isCropTop(url)) {
-                const subdomain = urlObj.hostname.split('.')[0];
-                if (subdomain.match(/^(baf[yk][a-zA-Z0-9]{55}|Qm[a-zA-Z0-9]{44})$/i)) {
-                    extractedCID = subdomain;
-                }
-            }
-
-            // 如果不是 crop.top 或没有从子域名中提取到 CID，继续其他匹配
-            if (!extractedCID) {
+            
+            // 如果输入看起来像是URL，进行URL解析
+            if (input.includes('://') || input.startsWith('//')) {
+                const urlObj = new URL(input);
+                
                 // 匹配子域名形式
                 const subdomain = urlObj.hostname.split('.')[0];
                 if (subdomain.match(/^(baf[yk][a-zA-Z0-9]{55}|Qm[a-zA-Z0-9]{44})$/i)) {
                     extractedCID = subdomain;
                 }
+                
                 // 匹配 IPNS key
                 if (subdomain.match(/^k51[a-zA-Z0-9]{59}$/i)) {
                     extractedCID = subdomain;
                 }
 
-                // 增强型路径匹配
-                const ipfsPathMatch = urlObj.pathname.match(/\/ipfs\/(baf[yk][a-zA-Z0-9]{55}|Qm[a-zA-Z0-9]{44})/i) ||
-                                    url.match(/\/ipfs\/(baf[yk][a-zA-Z0-9]{55}|Qm[a-zA-Z0-9]{44})/i);
-                if (ipfsPathMatch) {
-                    extractedCID = ipfsPathMatch[1];
+                // 匹配路径形式
+                const ipfsMatch = urlObj.pathname.match(/\/ipfs\/(baf[yk][a-zA-Z0-9]{55}|Qm[a-zA-Z0-9]{44})/i);
+                if (ipfsMatch) {
+                    extractedCID = ipfsMatch[1];
                 }
 
-                if (!extractedCID) {
-                    const pathParts = urlObj.pathname.split('/');
-                    for (let i = 0; i < pathParts.length; i++) {
-                        if (pathParts[i].toLowerCase() === 'ipfs' && i + 1 < pathParts.length) {
-                            const potentialCID = pathParts[i + 1];
-                            if (potentialCID.match(/^(baf[yk][a-zA-Z0-9]{55}|Qm[a-zA-Z0-9]{44})$/i)) {
-                                extractedCID = potentialCID;
-                                break;
-                            }
-                        }
-                    }
+                // 匹配 IPNS 路径
+                const ipnsMatch = urlObj.pathname.match(/\/ipns\/(k51[a-zA-Z0-9]{59})/i);
+                if (ipnsMatch) {
+                    extractedCID = ipnsMatch[1];
                 }
-
-                // 匹配路径中的 IPNS key
-                const ipnsKeyMatch = urlObj.pathname.match(/\/ipns\/(k51[a-zA-Z0-9]{59})/i) ||
-                                   url.match(/\/ipns\/(k51[a-zA-Z0-9]{59})/i);
-                if (ipnsKeyMatch) {
-                    extractedCID = ipnsKeyMatch[1];
-                }
-
-                // 匹配路径中的独立 IPNS key
-                const ipnsPathMatch = urlObj.pathname.match(/(k51[a-zA-Z0-9]{59})/i);
-                if (ipnsPathMatch) {
-                    extractedCID = ipnsPathMatch[1];
+            } else {
+                // 直接尝试匹配CID格式
+                const cidMatch = input.match(/^(baf[yk][a-zA-Z0-9]{55}|Qm[a-zA-Z0-9]{44}|k51[a-zA-Z0-9]{59})$/i);
+                if (cidMatch) {
+                    extractedCID = cidMatch[1];
                 }
             }
 
@@ -405,7 +373,7 @@
 
             return extractedCID;
         } catch (e) {
-            console.error('URL解析错误:', e);
+            console.error('CID提取错误:', e);
             return null;
         }
     }
@@ -413,8 +381,19 @@
     // 判断是否为文件浏览页面
     function isIPFSBrowsingPage(url) {
         try {
-            const pathname = new URL(url).pathname;
-            return pathname.includes('/ipfs/') && pathname.split('/').length > 3;
+            const urlObj = new URL(url);
+            if (!urlObj.pathname.includes('/ipfs/')) {
+                return false;
+            }
+            
+            // 对于 Web UI 的特殊处理
+            if (urlObj.hash && urlObj.hash.includes('/files')) {
+                return false;
+            }
+            
+            // 普通文件浏览页面检查
+            const parts = urlObj.pathname.split('/');
+            return parts.length > 3;
         } catch (e) {
             return false;
         }
@@ -521,7 +500,7 @@
         const links = document.getElementsByTagName('a');
         for (const link of links) {
             const cid = extractCID(link.href);
-            if (!cid || cid === currentPageCID) continue;
+            if (!cid) continue; // 只过滤无效的 CID，不再过滤当前页面的 CID
     
             try {
                 const linkUrl = new URL(link.href);
@@ -640,8 +619,28 @@
     function batchCopyItems(type, button) {
         const currentPageCID = extractCID(window.location.href);
         
+        // 定义要排除的空文件夹 CID
+        const excludedCIDs = [
+            'bafybeiczsscdsbs7ffqz55asqdf3smv6klcw3gofszvwlyarci47bgf354',
+            'QmUNLLsPACCz1vLxQVkXqqLX5R1X345qqfHbsf67hvA3Nn'
+        ];
+        
+        // 获取并过滤条目
         const sortedEntries = Array.from(linkInfo.entries())
-            .filter(([cid]) => cid !== currentPageCID)
+            .filter(([cid]) => {
+                // 排除当前页面的 CID
+                if (cid === currentPageCID) return false;
+                
+                // 排除空文件夹 CID（根据CID版本选择比较方式）
+                return !excludedCIDs.some(excluded => {
+                    // CID v0 (Qm开头) - 大小写敏感
+                    if (excluded.startsWith('Qm')) {
+                        return excluded === cid;
+                    }
+                    // CID v1 (baf开头) - 大小写不敏感
+                    return excluded.toLowerCase() === cid.toLowerCase();
+                });
+            })
             .sort((a, b) => {
                 if (!!a[1].isLink === !!b[1].isLink) return 0;
                 return a[1].isLink ? -1 : 1;
@@ -661,10 +660,8 @@
         }
     
         const items = sortedEntries.map(([cid, info]) => {
-            // 尝试从文本内容中提取 filename 参数
             let filenameFromText = null;
             if (!info.isLink && info.text) {
-                // 查找 CID 后面的 filename 参数，直到遇到换行符或字符串结束
                 const cidIndex = info.text.indexOf(cid);
                 if (cidIndex !== -1) {
                     const afterCid = info.text.slice(cidIndex + cid.length);
@@ -684,7 +681,6 @@
                     return cid;
                     
                 case 'filename':
-                    // 优先级：显式文件名 > 文本中的 filename 参数 > CID
                     if (info.filename && !info.filename.includes('/ipfs/')) {
                         return info.filename;
                     }
@@ -696,7 +692,6 @@
                 case 'url':
                     if (info.isLink && info.url) {
                         let url = info.url;
-                        // 优先使用已有的文件名
                         const validFilename = info.filename && !info.filename.includes('/ipfs/') 
                             ? info.filename 
                             : (filenameFromText || cid);
@@ -706,9 +701,10 @@
                         }
                         return url;
                     }
-                    // 对于文本CID，使用检测到的文件名（如果有）
+                    // 使用用户设置的网关或默认网关
+                    const gateway = getGateway();
                     const filename = filenameFromText || cid;
-                    return `https://ipfs.io/ipfs/${cid}?filename=${encodeURIComponent(filename)}`;
+                    return `${gateway}/ipfs/${cid}?filename=${encodeURIComponent(filename)}`;
                     
                 default:
                     return cid;
@@ -719,27 +715,47 @@
         copyToClipboard(formattedItems, button);
     }
     
-    // 更新计数显示的辅助函数
+    // 更新批量按钮函数
     function updateBatchButtons() {
-        const currentPageCID = extractCID(window.location.href);
-        const totalCount = linkInfo.size;
-        const effectiveCount = currentPageCID ? totalCount - 1 : totalCount;
+        const currentUrl = window.location.href;
+        const currentPageCID = isIPFSBrowsingPage(currentUrl) ? extractCID(currentUrl) : null;
         
-        // 使用统一的计数器更新函数
-        updateCounters(effectiveCount);
+        // 定义要排除的 CID
+        const excludedCIDs = [
+            'bafybeiczsscdsbs7ffqz55asqdf3smv6klcw3gofszvwlyarci47bgf354',
+            'QmUNLLsPACCz1vLxQVkXqqLX5R1X345qqfHbsf67hvA3Nn'
+        ];
         
-        if (effectiveCount > 0) {
+        // 获取所有条目
+        const allEntries = Array.from(linkInfo.entries());
+        
+        // 过滤掉空文件夹 CID
+        const validEntries = allEntries.filter(([cid, info]) => {
+            if (info.isLink && info.url) {
+                return extractCID(info.url) !== null;
+            }
+            return extractCID(cid) !== null;
+        });
+        
+        // 计算有多少条目是空文件夹
+        const emptyFolderCount = allEntries.filter(([cid]) => 
+            excludedCIDs.includes(cid.toLowerCase())
+        ).length;
+        
+        // 计算当前页面 CID 减去的数量
+        const currentPageDeduction = currentPageCID && 
+            validEntries.some(([cid]) => cid === currentPageCID) ? 1 : 0;
+        
+        // 计算最终有效计数
+        const totalCount = validEntries.length;
+        const effectiveCount = totalCount - emptyFolderCount - currentPageDeduction;
+        
+        if (totalCount > 0) {
             batchButtonsContainer.classList.add('visible');
-            
-            // 更新按钮可见性
             [batchCopyBtn, batchDownloadBtn, batchFilenameBtn].forEach(btn => {
                 btn.style.display = 'block';
+                btn.innerHTML = `${btn.innerHTML.split('<')[0]}<span class="ipfs-copy-count">${effectiveCount}</span>`;
             });
-            
-            // 使用一致的计数更新按钮文本
-            batchCopyBtn.innerHTML = `批量复制CID <span class="ipfs-copy-count">${effectiveCount}</span>`;
-            batchDownloadBtn.innerHTML = `批量复制下载链接 <span class="ipfs-copy-count">${effectiveCount}</span>`;
-            batchFilenameBtn.innerHTML = `批量复制文件名 <span class="ipfs-copy-count">${effectiveCount}</span>`;
         } else {
             batchButtonsContainer.classList.remove('visible');
             [batchCopyBtn, batchDownloadBtn, batchFilenameBtn].forEach(btn => {
@@ -982,6 +998,49 @@
         localStorage.setItem('ipfsCopyHelperDefaultCollapsed', newDefault);
         alert(`默认状态已更改为：${newDefault === 'true' ? '收起' : '展开'}`);
     });
+
+    GM_registerMenuCommand('设置纯文本 CID 复制下载链接的默认 IPFS 网关', setGateway);
+
+    // 获取网关地址，优先使用用户设置的网关，默认 ipfs.io
+    function getGateway() {
+        return GM_getValue('ipfsGateway', 'https://ipfs.io');
+    }
+    
+    // 设置网关地址
+    function setGateway() {
+        const currentGateway = getGateway();
+        const newGateway = prompt(
+            '请输入复制纯文本 CID 下载链接的 IPFS 网关（含 https://）：\n' +
+            '留空则使用默认网关 https://ipfs.io',
+            currentGateway
+        );
+        
+        if (newGateway === null) {
+            // 用户点击取消
+            return;
+        }
+        
+        let gateway = newGateway.trim();
+        
+        // 如果用户输入为空，使用默认网关
+        if (!gateway) {
+            gateway = 'https://ipfs.io';
+        }
+        
+        // 确保网关地址以 https:// 开头
+        if (!gateway.startsWith('https://')) {
+            alert('网关地址必须以 https:// 开头！');
+            return;
+        }
+        
+        // 移除末尾的斜杠
+        gateway = gateway.replace(/\/+$/, '');
+        
+        // 保存设置
+        GM_setValue('ipfsGateway', gateway);
+        alert(`网关已设置为：${gateway}`);
+    }
+    
 
     // 检查默认配置和初始化
     const defaultCollapsedState = localStorage.getItem('ipfsCopyHelperDefaultCollapsed');
