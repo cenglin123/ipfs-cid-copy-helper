@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         IPFS CID Copy Helper
 // @namespace    http://tampermonkey.net/
-// @version      2.4
+// @version      2.8
 // @description  自动为网页中的 IPFS 链接和文本添加 CID 复制功能，支持普通文本中的 CID。
 // @author       cenglin123
 // @match        *://*/*
@@ -131,11 +131,11 @@
             flex-direction: column;
             gap: 10px;
         }
-        
+
         .ipfs-config-panel.visible {
             display: flex;
         }
-        
+
         .ipfs-config-panel textarea {
             width: 100%;
             height: 200px;
@@ -145,13 +145,13 @@
             border-radius: 4px;
             resize: vertical;
         }
-        
+
         .ipfs-config-panel .button-group {
             display: flex;
             gap: 10px;
             justify-content: flex-end;
         }
-        
+
         .ipfs-config-panel button {
             padding: 8px 16px;
             border: none;
@@ -160,17 +160,17 @@
             background: #4a90e2;
             color: white;
         }
-        
+
         .ipfs-config-panel button:hover {
             background: #357abd;
         }
-        
+
         .ipfs-config-panel h2 {
             margin: 0 0 10px 0;
             padding-bottom: 10px;
             border-bottom: 1px solid #ddd;
         }
-        
+
         .ipfs-config-panel .help-text {
             font-size: 12px;
             color: #666;
@@ -194,7 +194,7 @@
     // 创建右下角批量复制浮窗 UI
     const batchButtonsContainer = document.createElement('div');
     batchButtonsContainer.className = 'ipfs-batch-buttons';
-    
+
     if (localStorage.getItem('ipfsCopyHelperDefaultCollapsed') === 'true') { // 根据默认设置决定是否添加 collapsed 类
         batchButtonsContainer.classList.add('collapsed');
     }
@@ -251,17 +251,17 @@
             ];
 
             let extractedCID = null;
-            
+
             // 如果输入看起来像是URL，进行URL解析
             if (input.includes('://') || input.startsWith('//')) {
                 const urlObj = new URL(input);
-                
+
                 // 匹配子域名形式
                 const subdomain = urlObj.hostname.split('.')[0];
                 if (subdomain.match(/^(baf[yk][a-zA-Z0-9]{55}|Qm[a-zA-Z0-9]{44})$/i)) {
                     extractedCID = subdomain;
                 }
-                
+
                 // 匹配 IPNS key
                 if (subdomain.match(/^k51[a-zA-Z0-9]{59}$/i)) {
                     extractedCID = subdomain;
@@ -302,16 +302,16 @@
     function isIPFSBrowsingPage(url) {
         try {
             const urlObj = new URL(url);
-            
+
             // 检查子域名形式（支持 .ipfs. 和 .eth. 形式）
             const hostParts = urlObj.hostname.split('.');
             if (hostParts.length >= 3) {
                 const possibleCid = hostParts[0];
                 // 如果子域名是有效的 CID
                 if (extractCID(possibleCid)) {
-                    // 检查是否包含 .ipfs. 或 .eth. 
-                    const isIpfsDomain = hostParts.some((part, index) => 
-                        index < hostParts.length - 1 && 
+                    // 检查是否包含 .ipfs. 或 .eth.
+                    const isIpfsDomain = hostParts.some((part, index) =>
+                        index < hostParts.length - 1 &&
                         (part === 'ipfs' || part === 'eth')
                     );
                     // 如果是子域名形式，且路径长度大于1（不只是根路径），则认为是浏览页面
@@ -320,21 +320,21 @@
                     }
                 }
             }
-            
+
             // 检查路径形式
             if (!urlObj.pathname.includes('/ipfs/')) {
                 return false;
             }
-            
+
             // 对于 Web UI 的特殊处理
             if (urlObj.hash && urlObj.hash.includes('/files')) {
                 return false;
             }
-            
+
             // 普通文件浏览页面检查
             const parts = urlObj.pathname.split('/');
             return parts.length > 3;
-            
+
         } catch (e) {
             console.error('URL解析错误:', e);
             return false;
@@ -428,29 +428,29 @@
             batchButtonsContainer.classList.remove('visible');
             return;
         }
-    
+
         linkInfo.clear();
-    
+
         // 先扫描文本节点，确保文本 CID 在后面
         scanTextNodes(document.body);
-    
+
         // 再扫描链接
         const currentPageCID = extractCID(window.location.href);
         const currentPageBase = window.location.origin + window.location.pathname.split('/').slice(0, -1).join('/');
-    
+
         const links = document.getElementsByTagName('a');
         for (const link of links) {
             const cid = extractCID(link.href);
             if (!cid) continue; // 只过滤无效的 CID，不再过滤当前页面的 CID
-    
+
             try {
                 const linkUrl = new URL(link.href);
                 const linkBase = linkUrl.origin + linkUrl.pathname.split('/').slice(0, -1).join('/');
                 if (linkBase === currentPageBase) continue;
-    
+
                 const existingInfo = linkInfo.get(cid);
                 const filename = extractFilename(link.href, link.textContent);
-    
+
                 linkInfo.set(cid, {
                     type: detectLinkType(link.href),
                     url: link.href,
@@ -462,7 +462,7 @@
                 console.error('URL解析错误:', e);
             }
         }
-    
+
         updateBatchButtons();
     }
 
@@ -512,35 +512,71 @@
     // 复制某个内容到剪贴板的函数
     function copyToClipboard(text, button) {
         const originalText = button.textContent;
-        navigator.clipboard.writeText(text).then(() => {
-            button.textContent = '已复制！';
+
+        // 创建后备复制方案
+        function fallbackCopy() {
+            try {
+                const textArea = document.createElement('textarea');
+                textArea.value = text;
+
+                // 将文本区域放在不可见位置
+                textArea.style.position = 'fixed';
+                textArea.style.left = '-9999px';
+                textArea.style.top = '-9999px';
+                document.body.appendChild(textArea);
+
+                // 选择并复制文本
+                textArea.select();
+                const success = document.execCommand('copy');
+                document.body.removeChild(textArea);
+
+                if (success) {
+                    button.textContent = '已复制！';
+                } else {
+                    button.textContent = '复制失败';
+                }
+            } catch (err) {
+                console.error('复制失败:', err);
+                button.textContent = '复制失败';
+            }
+
             setTimeout(() => {
                 button.textContent = originalText;
             }, 1000);
-        }).catch(err => {
-            console.error('复制失败:', err);
-            button.textContent = '复制失败';
-            setTimeout(() => {
-                button.textContent = originalText;
-            }, 1000);
-        });
+        }
+
+        // 优先使用 Clipboard API，如果不支持则使用后备方案
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+            navigator.clipboard.writeText(text)
+                .then(() => {
+                    button.textContent = '已复制！';
+                    setTimeout(() => {
+                        button.textContent = originalText;
+                    }, 1000);
+                })
+                .catch(err => {
+                    console.warn('Clipboard API 失败，使用后备方案:', err);
+                    fallbackCopy();
+                });
+        } else {
+            console.warn('Clipboard API 不可用，使用后备方案');
+            fallbackCopy();
+        }
     }
 
     // 批量复制函数
     function batchCopyItems(type, button) {
         const validEntries = getValidEntries();
         const totalCount = validEntries.length;
-        
+
         if (totalCount === 0) {
+            const originalText = button.innerHTML;
             button.textContent = '没有可用的项目';
             setTimeout(() => {
-                button.innerHTML = `批量复制${type === 'cid' ? 'CID' : 
-                                type === 'filename' ? '文件名' : 
-                                '下载链接'} <span class="ipfs-copy-count">${totalCount}</span>`;
+                button.innerHTML = originalText;
             }, 1000);
             return;
         }
-
         const items = validEntries.map(([cid, info]) => {
             let filenameFromText = null;
             if (!info.isLink && info.text) {
@@ -561,7 +597,7 @@
             switch (type) {
                 case 'cid':
                     return cid;
-                    
+
                 case 'filename':
                     if (info.filename && !info.filename.includes('/ipfs/')) {
                         return info.filename;
@@ -570,15 +606,15 @@
                         return filenameFromText;
                     }
                     return cid;
-                    
+
                 case 'url':
                     if (info.isLink && info.url) {
                         let url = info.url;
-                        const validFilename = info.filename && !info.filename.includes('/ipfs/') 
-                            ? info.filename 
+                        const validFilename = info.filename && !info.filename.includes('/ipfs/')
+                            ? info.filename
                             : (filenameFromText || cid);
                         if (!url.includes('?filename=')) {
-                            url += (url.includes('?') ? '&' : '?') + 'filename=' + 
+                            url += (url.includes('?') ? '&' : '?') + 'filename=' +
                                 encodeURIComponent(validFilename);
                         }
                         return url;
@@ -586,7 +622,7 @@
                     const gateway = getGateway();
                     const filename = filenameFromText || cid;
                     return `${gateway}/ipfs/${cid}?filename=${encodeURIComponent(filename)}`;
-                    
+
                 default:
                     return cid;
             }
@@ -603,13 +639,13 @@
             'QmUNLLsPACCz1vLxQVkXqqLX5R1X345qqfHbsf67hvA3Nn'
         ];
         const currentPageCID = extractCID(window.location.href);
-        
+
         // 获取并过滤条目
         return Array.from(linkInfo.entries())
             .filter(([cid]) => {
                 // 排除当前页面的 CID
                 if (cid === currentPageCID) return false;
-                
+
                 // 排除空文件夹 CID（根据CID版本选择比较方式）
                 return !excludedCIDs.some(excluded => {
                     // CID v0 (Qm开头) - 大小写敏感
@@ -621,18 +657,26 @@
                 });
             });
     }
-    
+
     // 更新显示计数的函数
     function updateBatchButtons() {
         const validEntries = getValidEntries();
         const totalCount = validEntries.length;
-        
+
         if (totalCount > 0) {
             batchButtonsContainer.classList.add('visible');
-            [batchCopyBtn, batchDownloadBtn, batchFilenameBtn].forEach(btn => {
-                btn.style.display = 'block';
-                btn.innerHTML = `${btn.innerHTML.split('<')[0]}<span class="ipfs-copy-count">${totalCount}</span>`;
-            });
+            
+            // 更新批量复制CID按钮
+            batchCopyBtn.style.display = 'block';
+            batchCopyBtn.innerHTML = `批量复制CID <span class="ipfs-copy-count">${totalCount}</span>`;
+            
+            // 更新批量复制文件名按钮
+            batchFilenameBtn.style.display = 'block';
+            batchFilenameBtn.innerHTML = `批量复制文件名 <span class="ipfs-copy-count">${totalCount}</span>`;
+            
+            // 更新批量复制下载链接按钮
+            batchDownloadBtn.style.display = 'block';
+            batchDownloadBtn.innerHTML = `批量复制下载链接 <span class="ipfs-copy-count">${totalCount}</span>`;
         } else {
             batchButtonsContainer.classList.remove('visible');
             [batchCopyBtn, batchDownloadBtn, batchFilenameBtn].forEach(btn => {
@@ -640,16 +684,16 @@
             });
         }
     }
-    
+
     // 调用统一的复制处理函数
     function batchCopyCIDs() {
         batchCopyItems('cid', batchCopyBtn);
     }
-    
+
     function batchCopyFilenames() {
         batchCopyItems('filename', batchFilenameBtn);
     }
-    
+
     function batchCopyDownloadLinks() {
         batchCopyItems('url', batchDownloadBtn);
     }
@@ -660,7 +704,7 @@
         if (isExcludedPage()) {
             return;
         }
-    
+
         // 清除可能存在的定时器
         if (hideTimeout) {
             clearTimeout(hideTimeout);
@@ -670,22 +714,16 @@
             clearTimeout(showTimeout);
             showTimeout = null;
         }
-    
+
         copyBtnGroup.style.display = 'block';
         copyBtnGroup.style.top = `${y + window.scrollY + 5}px`;
         copyBtnGroup.style.left = `${x + window.scrollX}px`;
-    
+
         copyBtn.textContent = `复制 ${type}`;
         copyBtn.onclick = () => {
-            navigator.clipboard.writeText(cid).then(() => {
-                copyBtn.textContent = '已复制！';
-                setTimeout(() => {
-                    copyBtn.textContent = `复制 ${type}`;
-                    copyBtnGroup.style.display = 'none';
-                }, 1000);
-            });
+            copyToClipboard(cid, copyBtn);
         };
-    
+
         // 只为纯文本CID显示下载链接按钮
         if (!isLink) {
             copyLinkBtn.style.display = 'inline-block';
@@ -693,13 +731,7 @@
             copyLinkBtn.onclick = () => {
                 const gateway = getGateway();
                 const downloadLink = `${gateway}/ipfs/${cid}`;
-                navigator.clipboard.writeText(downloadLink).then(() => {
-                    copyLinkBtn.textContent = '已复制！';
-                    setTimeout(() => {
-                        copyLinkBtn.textContent = '复制下载链接';
-                        copyBtnGroup.style.display = 'none';
-                    }, 1000);
-                });
+                copyToClipboard(downloadLink, copyLinkBtn);
             };
         } else {
             copyLinkBtn.style.display = 'none';
@@ -713,14 +745,14 @@
             copyBtnGroup.style.display = 'none';
             return;
         }
-    
+
         if (hideTimeout) {
             clearTimeout(hideTimeout);
         }
         if (showTimeout) {
             clearTimeout(showTimeout);
         }
-    
+
         hideTimeout = setTimeout(() => {
             if (!isButtonHovered && !currentHoveredElement) {
                 copyBtnGroup.style.display = 'none';
@@ -736,7 +768,7 @@
             batchButtonsContainer.classList.remove('visible');
             return;
         }
-    
+
         if (scanTimeout) {
             clearTimeout(scanTimeout);
         }
@@ -766,12 +798,12 @@
         if (isExcludedPage()) {
             return;
         }
-    
+
         if (currentHoveredElement === element) return;  // 如果是同一个元素，不重复处理
-    
+
         currentHoveredElement = element;
         const rect = element.getBoundingClientRect();
-    
+
         // 使用延时显示，避免快速划过时的闪烁
         if (showTimeout) {
             clearTimeout(showTimeout);
@@ -793,7 +825,7 @@
         if (isExcludedPage()) {
             return;
         }
-    
+
         // 处理链接
         const link = e.target.closest('a');
         if (link) {
@@ -874,13 +906,15 @@
     });
 
     // observer 的设置，观察DOM变化
-    const observer = new MutationObserver((mutations) => {
-        if (isExcludedPage()) {
-            observer.disconnect(); // 如果页面在排除列表中，停止观察
-            batchButtonsContainer.classList.remove('visible');
-            return;
+    let scanScheduled = false;
+    const observer = new MutationObserver(() => {
+        if (!scanScheduled) {
+            scanScheduled = true;
+            setTimeout(() => {
+                initPageScan();
+                scanScheduled = false;
+            }, 1500); // 在1500ms后再执行扫描，避免频繁触发
         }
-        initPageScan();
     });
 
     // DOM 初始化代码
@@ -910,11 +944,18 @@
 
     //// 4. 添加油猴菜单命令 ////
 
+    // 切换右下角浮窗默认展开/收起状态
     GM_registerMenuCommand('切换右下角浮窗默认展开/收起状态', () => {
         const defaultCollapsed = localStorage.getItem('ipfsCopyHelperDefaultCollapsed');
         const newDefault = defaultCollapsed === 'true' ? 'false' : 'true';
         localStorage.setItem('ipfsCopyHelperDefaultCollapsed', newDefault);
         alert(`默认状态已更改为：${newDefault === 'true' ? '收起' : '展开'}`);
+    });
+
+    // 打开 IPFS-SCAN
+    GM_registerMenuCommand('打开 IPFS-SCAN', () => {
+        // 在新标签页打开 IPFS-SCAN
+        window.open('https://ipfs-scan.io/', '_blank');
     });
 
     // 创建排除网址的配置面板
@@ -959,7 +1000,7 @@
     function isExcludedPage() {
         const currentUrl = window.location.href;
         const excludedUrls = getExcludedUrls();
-        
+
         return excludedUrls.some(pattern => {
             const regex = urlPatternToRegex(pattern);
             return regex.test(currentUrl);
@@ -969,35 +1010,41 @@
     // 显示配置面板
     function showConfigPanel() {
         const excludedUrls = getExcludedUrls();
+
+        // 如果没有保存的排除列表，则填入默认规则
+        if (excludedUrls.length === 0) {
+            excludedUrls.push('*cangku.moe/admin/post/update/*');
+        }
+
         document.getElementById('excludeUrlList').value = excludedUrls.join('\n');
         configPanel.classList.add('visible');
     }
 
-    // 注册菜单命令
+    // 注册菜单命令：管理排除网址
     GM_registerMenuCommand('管理排除网址', showConfigPanel);
 
-    // 事件处理
+    // 事件处理：添加当前页面
     document.getElementById('addCurrentUrl').addEventListener('click', () => {
         const textarea = document.getElementById('excludeUrlList');
         const currentUrl = window.location.href;
         const urls = textarea.value.split('\n').filter(url => url.trim());
-        
+
         if (!urls.includes(currentUrl)) {
             urls.push(currentUrl);
             textarea.value = urls.join('\n');
         }
     });
 
-    // 在保存排除列表后添加清理功能
+    // 事件处理：保存排除列表
     document.getElementById('saveExcludeList').addEventListener('click', () => {
         const urls = document.getElementById('excludeUrlList').value
             .split('\n')
             .map(url => url.trim())
             .filter(url => url);
-        
+
         saveExcludedUrls(urls);
         configPanel.classList.remove('visible');
-        
+
         // 保存后检查并清理
         if (isExcludedPage()) {
             observer.disconnect();
@@ -1017,17 +1064,19 @@
         }
     });
 
+    // 事件处理：取消
     document.getElementById('cancelConfig').addEventListener('click', () => {
         configPanel.classList.remove('visible');
     });
 
+    // 设置纯文本 CID 复制下载链接的默认 IPFS 网关
     GM_registerMenuCommand('设置纯文本 CID 复制下载链接的默认 IPFS 网关', setGateway);
 
     // 获取网关地址，优先使用用户设置的网关，默认 ipfs.io
     function getGateway() {
         return GM_getValue('ipfsGateway', 'https://ipfs.io');
     }
-    
+
     // 设置网关地址
     function setGateway() {
         const currentGateway = getGateway();
@@ -1036,33 +1085,33 @@
             '留空则使用默认网关 https://ipfs.io',
             currentGateway
         );
-        
+
         if (newGateway === null) {
             // 用户点击取消
             return;
         }
-        
+
         let gateway = newGateway.trim();
-        
+
         // 如果用户输入为空，使用默认网关
         if (!gateway) {
             gateway = 'https://ipfs.io';
         }
-        
+
         // 确保网关地址以 https:// 开头
         if (!gateway.startsWith('https://')) {
             alert('网关地址必须以 https:// 开头！');
             return;
         }
-        
+
         // 移除末尾的斜杠
         gateway = gateway.replace(/\/+$/, '');
-        
+
         // 保存设置
         GM_setValue('ipfsGateway', gateway);
         alert(`网关已设置为：${gateway}`);
     }
-    
+
     // 浮窗隐藏/显示切换函数
     const linkInfo = new Map();
     let isCollapsed = false;
