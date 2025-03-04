@@ -1,12 +1,13 @@
 // ==UserScript==
 // @name         IPFS CID Copy Helper
 // @namespace    http://tampermonkey.net/
-// @version      2.8
-// @description  自动为网页中的 IPFS 链接和文本添加 CID 复制功能，支持普通文本中的 CID。
+// @version      3.0
+// @description  自动为网页中的 IPFS 链接和文本添加 CID 复制功能，可以管理排除网址，打开 IPFS-SCAN，以及对 CID 进行网关测速。
 // @author       cenglin123
 // @match        *://*/*
 // @grant        GM_addStyle
 // @grant        GM_registerMenuCommand
+// @grant        GM_xmlhttpRequest
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @homepage     https://github.com/cenglin123/ipfs-cid-copy-helper
@@ -20,6 +21,40 @@
     'use strict';
 
     //// 1. 样式及UI初始化 ////
+
+    // 默认网关列表
+    const DEFAULT_GATEWAYS = [
+        'https://ipfs.io',
+        'https://dweb.link',
+        'https://w3s.link',
+        'https://gw.crustgw.work',
+        'https://gw.crust-gateway.xyz',
+        'https://gateway.pinata.cloud',
+        'https://content.sado.space',
+        'https://ipfs03.food-chain.it',
+        'https://ipfs.hypha.coop',
+        'https://gw.ipfs-lens.dev',
+        'https://ipfs-us1.apillon.io',
+        'https://flk-ipfs.xyz',
+        'https://i0.img2ipfs.com',
+        'https://gw.w3ipfs.net:7443',
+        'https://gw.w3ipfs.cn:10443',
+        'https://ipfs.interface.social',
+        'https://ipfs-5.yoghourt.cloud ',
+        'https://ipfs-8.yoghourt.cloud',
+        'https://ipfs-11.yoghourt.cloud',
+        'https://ipfs-13.yoghourt.cloud',
+        'https://snapshot.4everland.link',
+        'https://lensshare.4everland.link',
+        'https://flair-indexing.4everland.link',
+        'https://ogpotheads.4everland.link',
+        'https://lxdaoipfs.4everland.link',
+        'https://ipfs.runfission.com',
+        'https://nftstorage.link',
+        'https://ipfs.raribleuserdata.com',
+        'https://gw.smallwolf.me',
+        'https://eth.sucks',
+    ];
 
     // 样式配置
     GM_addStyle(`
@@ -176,6 +211,259 @@
             color: #666;
             margin-bottom: 10px;
         }
+
+        /* 网关测速窗口样式 */
+        .ipfs-speed-test-window {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 900px;
+            max-width: 90vw;
+            height: 600px; /* 固定高度 */
+            max-height: 80vh;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            z-index: 10001;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            // resize: none; /* 防止用户调整大小 */
+        }
+        
+        /* 添加标题栏拖动样式 */
+        .ipfs-speed-test-title {
+            font-size: 24px;
+            font-weight: bold;
+            margin-top: -5px;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: move; /* 显示拖动光标 */
+            user-select: none; /* 防止文本被选中 */
+        }
+        
+        /* 确保内容区域可滚动 */
+        .ipfs-speed-test-content {
+            flex: 1;
+            overflow-y: auto;
+            padding-right: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .ipfs-speed-test-close {
+            cursor: pointer;
+            font-size: 24px;
+            color: #666;
+        }
+        .ipfs-speed-test-content {
+            flex: 1;
+            overflow-y: auto;
+            padding-right: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        .ipfs-speed-test-results {
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+        .ipfs-gateway-item {
+            padding: 10px 15px;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .ipfs-gateway-item:last-child {
+            border-bottom: none;
+        }
+        .ipfs-gateway-item:hover {
+            background-color: #f0f7ff;
+        }
+        .ipfs-gateway-item.selected {
+            background-color: #e3f0ff;
+        }
+        .ipfs-gateway-url {
+            font-weight: bold;
+            flex: 1;
+        }
+        .ipfs-gateway-ping {
+            margin-left: 10px;
+            color: #555;
+            width: 70px;
+            text-align: right;
+        }
+        .ipfs-gateway-status {
+            margin-left: 10px;
+            width: 40px;
+            text-align: center;
+        }
+        .ipfs-gateway-status.success {
+            color: #4caf50;
+        }
+        .ipfs-gateway-status.fail {
+            color: #f44336;
+        }
+        .ipfs-speed-test-progress {
+            height: 4px;
+            background-color: #eee;
+            margin-top: 5px;
+            margin-bottom: 5px;
+            border-radius: 2px;
+            overflow: hidden;
+            display: none;
+        }
+        .ipfs-speed-test-progress-bar {
+            height: 100%;
+            background-color: #4a90e2;
+            width: 0%;
+            transition: width 0.3s;
+        }
+        .ipfs-speed-test-info {
+            font-size: 14px;
+            color: #666;
+            margin-top: -10px;
+            margin-bottom: 5px;
+            display: none;
+            height: 10px;  /* 添加固定高度 */
+        }
+        .ipfs-link-preview {
+            padding: 10px 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: #f5f5f5;
+            word-break: break-all;
+            margin-bottom: 15px;
+        }
+        .ipfs-button-group {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+        }
+        .ipfs-button {
+            padding: 8px 15px;
+            border-radius: 4px;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+        }
+        .ipfs-primary-button {
+            background-color: #4a90e2;
+            color: white;
+        }
+        .ipfs-primary-button:hover {
+            background-color: #357abd;
+        }
+        .ipfs-secondary-button {
+            background-color: #f0f0f0;
+            color: #333;
+        }
+        .ipfs-secondary-button:hover {
+            background-color: #e0e0e0;
+        }
+        .ipfs-danger-button {
+            background-color: #f5f5f5;
+            color: #d32f2f;
+        }
+        .ipfs-danger-button:hover {
+            background-color: #fbe9e7;
+        }
+        
+        /* 网关管理窗口样式 */
+        .ipfs-gateway-manager {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 500px;
+            max-width: 90vw;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            z-index: 10002;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        /* 网关管理窗口标题栏样式 */
+        .ipfs-gateway-manager-title {
+            font-size: 22px;
+            font-weight: bold;
+            margin-top: -5px;
+            margin-bottom: 15px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: move; /* 显示拖动光标 */
+            user-select: none; /* 防止文本被选中 */
+        }
+
+        .ipfs-gateway-manager-close {
+            cursor: pointer;
+            font-size: 24px;
+            color: #666;
+        }
+        .ipfs-gateway-manager textarea {
+            width: 100%;
+            height: 200px;
+            margin-bottom: 15px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            resize: vertical;
+            font-family: monospace;
+        }
+        .ipfs-gateway-manager-help {
+            font-size: 13px;
+            color: #666;
+            margin-bottom: 15px;
+        }
+        .ipfs-selected-cid-box {
+            padding: 10px 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: #f8f8f8;
+            word-break: break-all;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+        }
+        .ipfs-selected-cid-label {
+            font-weight: bold;
+            margin-right: 5px;
+            white-space: nowrap;
+        }
+        .ipfs-selected-cid-input {
+            flex: 1;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            padding: 5px 8px;
+            font-family: monospace;
+            font-size: 13px;
+            background-color: white;
+        }
     `);
 
     // 创建悬停按钮 UI
@@ -190,6 +478,12 @@
     const copyLinkBtn = document.createElement('div');
     copyLinkBtn.className = 'ipfs-copy-btn';
     copyBtnGroup.appendChild(copyLinkBtn);
+
+    //// 添加测速按钮:
+    const speedTestBtn = document.createElement('div');
+    speedTestBtn.className = 'ipfs-copy-btn';
+    speedTestBtn.textContent = '网关测速';
+    copyBtnGroup.appendChild(speedTestBtn);    
 
     // 创建右下角批量复制浮窗 UI
     const batchButtonsContainer = document.createElement('div');
@@ -224,7 +518,8 @@
     batchDownloadBtn.innerHTML = '批量复制下载链接 <span class="ipfs-copy-count">0</span>';
     batchButtonsContainer.appendChild(batchDownloadBtn);
 
-
+    // 定义一个全局变量来存储showSpeedTestWindow函数的引用
+    let globalShowSpeedTestWindow = null;
 
 
 
@@ -704,7 +999,7 @@
         if (isExcludedPage()) {
             return;
         }
-
+    
         // 清除可能存在的定时器
         if (hideTimeout) {
             clearTimeout(hideTimeout);
@@ -714,16 +1009,24 @@
             clearTimeout(showTimeout);
             showTimeout = null;
         }
-
+    
+        // 保存CID信息到按钮组，供网关测速按钮使用
+        copyBtnGroup.dataset.lastCid = cid;
+        copyBtnGroup.dataset.lastType = type;
+    
         copyBtnGroup.style.display = 'block';
         copyBtnGroup.style.top = `${y + window.scrollY + 5}px`;
         copyBtnGroup.style.left = `${x + window.scrollX}px`;
-
+    
+        copyBtnGroup.style.display = 'block';
+        copyBtnGroup.style.top = `${y + window.scrollY + 5}px`;
+        copyBtnGroup.style.left = `${x + window.scrollX}px`;
+    
         copyBtn.textContent = `复制 ${type}`;
         copyBtn.onclick = () => {
             copyToClipboard(cid, copyBtn);
         };
-
+    
         // 只为纯文本CID显示下载链接按钮
         if (!isLink) {
             copyLinkBtn.style.display = 'inline-block';
@@ -736,6 +1039,10 @@
         } else {
             copyLinkBtn.style.display = 'none';
         }
+        
+        // 显示网关测速按钮
+        speedTestBtn.style.display = 'inline-block';
+        speedTestBtn.textContent = '网关测速';
     }
 
     // 修改隐藏按钮函数
@@ -917,17 +1224,6 @@
         }
     });
 
-    // DOM 初始化代码
-    document.addEventListener('DOMContentLoaded', () => {
-        if (!isExcludedPage()) {
-            observer.observe(document.body, {
-                childList: true,
-                subtree: true
-            });
-            initPageScan();
-        }
-    });
-
     observer.observe(document.body, {
         childList: true,
         subtree: true
@@ -942,7 +1238,575 @@
 
 
 
-    //// 4. 添加油猴菜单命令 ////
+
+    //// 4. 网关测速逻辑实现 ////
+    
+    // 创建测速结果窗口
+    const speedTestWindow = document.createElement('div');
+    speedTestWindow.className = 'ipfs-speed-test-window';
+    speedTestWindow.style.display = 'none';
+    document.body.appendChild(speedTestWindow);
+
+    // 创建网关管理窗口
+    const gatewayManagerWindow = document.createElement('div');
+    gatewayManagerWindow.className = 'ipfs-gateway-manager';
+    gatewayManagerWindow.style.display = 'none';
+    document.body.appendChild(gatewayManagerWindow);
+
+    // 填充测速窗口内容
+    speedTestWindow.innerHTML = `
+        <div class="ipfs-speed-test-title">
+            <span>IPFS 网关测速器</span>
+            <span class="ipfs-speed-test-close">&times;</span>
+        </div>
+        <div class="ipfs-selected-cid-box">
+            <span class="ipfs-selected-cid-label">当前选择CID/IPNS key (或手动输入)：</span>
+            <input type="text" class="ipfs-selected-cid-input" placeholder="请输入CID或IPNS key">
+        </div>
+        <div class="ipfs-speed-test-content">
+            <div class="ipfs-speed-test-progress">
+                <div class="ipfs-speed-test-progress-bar"></div>
+            </div>
+            <div class="ipfs-speed-test-info">正在测速中，请稍候...</div>
+            <div class="ipfs-speed-test-results"></div>
+            <div class="ipfs-link-preview"></div>
+            <div class="ipfs-button-group">
+                <button class="ipfs-button ipfs-primary-button ipfs-copy-link">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                    复制下载链接
+                </button>
+                <button class="ipfs-button ipfs-primary-button ipfs-open-link">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                        <polyline points="15 3 21 3 21 9"></polyline>
+                        <line x1="10" y1="14" x2="21" y2="3"></line>
+                    </svg>
+                    在新标签页打开
+                </button>
+            </div>
+            <div class="ipfs-button-group">
+                <button class="ipfs-button ipfs-secondary-button ipfs-start-test">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="23 4 23 10 17 10"></polyline>
+                        <polyline points="1 20 1 14 7 14"></polyline>
+                        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                    </svg>
+                    开始测速
+                </button>
+                <button class="ipfs-button ipfs-secondary-button ipfs-manage-gateways">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="3"></circle>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                    </svg>
+                    管理网关
+                </button>
+                <button class="ipfs-button ipfs-danger-button ipfs-clear-results">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="3 6 5 6 21 6"></polyline>
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                    </svg>
+                    清除测速结果
+                </button>
+            </div>
+        </div>
+    `;
+
+    // 填充网关管理窗口内容
+    gatewayManagerWindow.innerHTML = `
+        <div class="ipfs-gateway-manager-title">
+            <span>管理测速网关</span>
+            <span class="ipfs-gateway-manager-close">&times;</span>
+        </div>
+        <div class="ipfs-gateway-manager-help">
+            每行输入一个网关地址，必须以 https:// 开头。<br>
+            例如：https://ipfs.io
+        </div>
+        <textarea class="ipfs-gateway-list"></textarea>
+        <div class="ipfs-button-group">
+            <button class="ipfs-button ipfs-secondary-button ipfs-reset-gateways">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M23 4v6h-6"></path>
+                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                </svg>
+                重置为默认
+            </button>
+            <button class="ipfs-button ipfs-primary-button ipfs-save-gateways">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                    <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                    <polyline points="7 3 7 8 15 8"></polyline>
+                </svg>
+                保存修改
+            </button>
+        </div>
+    `;
+    // 网关测速功能
+    function setupGatewaySpeedTest() {
+        // 当前测试状态
+        let currentCID = null;
+        let currentType = null; // 'ipfs' 或 'ipns'
+        let selectedGateway = null;
+        let isTestRunning = false;
+        let testResults = [];
+        
+        // 从存储中获取保存的测试结果和网关列表
+        function getSavedTestResults() {
+            return GM_getValue('ipfsGatewayTestResults', []);
+        }
+        
+        function saveTestResults(results) {
+            GM_setValue('ipfsGatewayTestResults', results);
+        }
+        
+        function getGatewayList() {
+            return GM_getValue('ipfsGatewayList', DEFAULT_GATEWAYS);
+        }
+        
+        function saveGatewayList(gateways) {
+            GM_setValue('ipfsGatewayList', gateways);
+        }
+
+        // 添加拖动功能
+        function makeDraggable(element) {
+            const titleBar = element.querySelector('.ipfs-speed-test-title, .ipfs-gateway-manager-title');
+            let isDragging = false;
+            let offsetX, offsetY;
+            
+            // 鼠标按下事件
+            titleBar.addEventListener('mousedown', (e) => {
+                // 只有点击标题栏区域才启用拖动
+                if (e.target.classList.contains('ipfs-speed-test-close') || 
+                    e.target.classList.contains('ipfs-gateway-manager-close')) {
+                    return; // 如果点击的是关闭按钮，不启用拖动
+                }
+                
+                isDragging = true;
+                
+                // 计算鼠标在窗口中的相对位置
+                const rect = element.getBoundingClientRect();
+                offsetX = e.clientX - rect.left;
+                offsetY = e.clientY - rect.top;
+                
+                // 移除 transform 属性，改为使用 top 和 left 定位
+                element.style.transform = 'none';
+                element.style.top = rect.top + 'px';
+                element.style.left = rect.left + 'px';
+                
+                // 修改鼠标样式
+                document.body.style.cursor = 'move';
+                
+                // 防止事件冒泡和默认行为
+                e.preventDefault();
+                e.stopPropagation();
+            });
+            
+            // 鼠标移动事件
+            const mouseMoveHandler = (e) => {
+                if (!isDragging) return;
+                
+                // 计算新位置
+                element.style.top = (e.clientY - offsetY) + 'px';
+                element.style.left = (e.clientX - offsetX) + 'px';
+                
+                // 防止事件冒泡和默认行为
+                e.preventDefault();
+            };
+            
+            // 鼠标松开事件
+            const mouseUpHandler = () => {
+                if (isDragging) {
+                    isDragging = false;
+                    document.body.style.cursor = 'default';
+                }
+            };
+            
+            // 使用 document 级别的事件监听，确保即使鼠标移出窗口也能继续拖动
+            document.addEventListener('mousemove', mouseMoveHandler);
+            document.addEventListener('mouseup', mouseUpHandler);
+            
+            // 返回清理函数，用于移除事件监听器
+            return () => {
+                document.removeEventListener('mousemove', mouseMoveHandler);
+                document.removeEventListener('mouseup', mouseUpHandler);
+            };
+        }
+        
+        // 应用拖动功能到测速窗口和网关管理窗口
+        makeDraggable(speedTestWindow);
+        makeDraggable(gatewayManagerWindow);
+        
+        // 显示网关管理窗口函数修改
+        function showGatewayManager() {
+            const gatewayList = getGatewayList();
+            const textarea = gatewayManagerWindow.querySelector('.ipfs-gateway-list');
+            textarea.value = gatewayList.join('\n');
+            
+            // 重置窗口位置到屏幕中央
+            gatewayManagerWindow.style.display = 'block';
+            gatewayManagerWindow.style.top = '50%';
+            gatewayManagerWindow.style.left = '50%';
+            gatewayManagerWindow.style.transform = 'translate(-50%, -50%)';
+        }
+        
+        // 显示测速窗口
+        function showSpeedTestWindow(cid, type) {
+            // 如果传入了CID，则使用传入的值，否则保持当前值
+            if (cid) {
+                currentCID = cid;
+                currentType = (type === 'IPNS Key') ? 'ipns' : 'ipfs';
+            }
+            
+            // 更新输入框的值
+            if (cidInputElement && currentCID) {
+                cidInputElement.value = currentCID;
+            }
+            
+            // 加载保存的测试结果
+            testResults = getSavedTestResults();
+            
+            // 重置窗口位置到屏幕中央
+            speedTestWindow.style.display = 'block';
+            speedTestWindow.style.top = '50%';
+            speedTestWindow.style.left = '50%';
+            speedTestWindow.style.transform = 'translate(-50%, -50%)';
+            
+            updateResultsDisplay();
+            updateLinkPreview();
+        }
+
+        // 监听CID输入框变化
+        const cidInputElement = speedTestWindow.querySelector('.ipfs-selected-cid-input');
+        if (cidInputElement) {
+            cidInputElement.addEventListener('change', function() {
+                const newCID = this.value.trim();
+                if (newCID) {
+                    // 自动检测是否为IPNS key
+                    currentCID = newCID;
+                    currentType = newCID.startsWith('k51') ? 'ipns' : 'ipfs';
+                    
+                    // 清除之前的测试结果，因为CID已经变化
+                    testResults = [];
+                    selectedGateway = null;
+                    updateResultsDisplay();
+                    updateLinkPreview();
+                }
+            });
+        }
+        
+        // 测速结果显示函数
+        function updateResultsDisplay() {
+            const resultsElement = speedTestWindow.querySelector('.ipfs-speed-test-results');
+            
+            if (testResults.length === 0) {
+                resultsElement.innerHTML = '<div style="padding: 15px; text-align: center; color: #666;">暂无测速结果，请点击"开始测速"按钮</div>';
+                return;
+            }
+            
+            // 首先按照可访问性分组，然后按照响应时间排序
+            const accessibleGateways = testResults.filter(result => result.status === 'success')
+                                                .sort((a, b) => a.ping - b.ping);
+            
+            const inaccessibleGateways = testResults.filter(result => result.status !== 'success')
+                                                .sort((a, b) => a.ping - b.ping);
+            
+            // 合并两个数组，确保可访问的网关在上方
+            const sortedResults = [...accessibleGateways, ...inaccessibleGateways];
+            
+            // 如果没有选中的网关，默认选择第一个可访问的网关
+            if (!selectedGateway && accessibleGateways.length > 0) {
+                selectedGateway = accessibleGateways[0].gateway;
+            }
+            
+            let html = '';
+            for (const result of sortedResults) {
+                const isSelected = result.gateway === selectedGateway;
+                html += `
+                    <div class="ipfs-gateway-item ${isSelected ? 'selected' : ''}" data-gateway="${result.gateway}">
+                        <div class="ipfs-gateway-url">${result.gateway}</div>
+                        <div class="ipfs-gateway-ping">${result.ping} ms</div>
+                        <div class="ipfs-gateway-status ${result.status === 'success' ? 'success' : 'fail'}">
+                            ${result.status === 'success' ? '✓' : '✗'}
+                        </div>
+                    </div>
+                `;
+            }
+            resultsElement.innerHTML = html;
+            
+            // 添加点击事件选择网关
+            const gatewayItems = resultsElement.querySelectorAll('.ipfs-gateway-item');
+            gatewayItems.forEach(item => {
+                item.addEventListener('click', () => {
+                    selectedGateway = item.dataset.gateway;
+                    gatewayItems.forEach(i => i.classList.remove('selected'));
+                    item.classList.add('selected');
+                    updateLinkPreview();
+                });
+            });
+        }
+        
+        // 更新链接预览
+        function updateLinkPreview() {
+            const linkPreview = speedTestWindow.querySelector('.ipfs-link-preview');
+            
+            if (!selectedGateway || !currentCID) {
+                linkPreview.textContent = '测速完成后单击以选择网关';
+                return;
+            }
+            
+            const link = `${selectedGateway}/${currentType}/${currentCID}`;
+            linkPreview.textContent = link;
+        }
+        
+        // 执行网关测速
+        async function runSpeedTest() {
+            if (isTestRunning || !currentCID) return;
+            
+            isTestRunning = true;
+            testResults = [];
+            selectedGateway = null;
+            
+            const gateways = getGatewayList();
+            const progressBar = speedTestWindow.querySelector('.ipfs-speed-test-progress');
+            const progressBarInner = speedTestWindow.querySelector('.ipfs-speed-test-progress-bar');
+            const infoText = speedTestWindow.querySelector('.ipfs-speed-test-info');
+            
+            progressBar.style.display = 'block';
+            infoText.style.display = 'block';
+            infoText.textContent = '正在测速中，请稍候...';
+            
+            // 并发测试多个网关
+            const MAX_CONCURRENT = 50;
+            let completedCount = 0;
+            
+            for (let i = 0; i < gateways.length; i += MAX_CONCURRENT) {
+                const batch = gateways.slice(i, i + MAX_CONCURRENT);
+                const testPromises = batch.map(gateway => testGateway(gateway));
+                
+                await Promise.all(testPromises);
+                
+                completedCount += batch.length;
+                const progress = (completedCount / gateways.length) * 100;
+                progressBarInner.style.width = `${progress}%`;
+                infoText.textContent = `正在测速中，已完成 ${completedCount}/${gateways.length}...`;
+                
+                // 更新显示
+                updateResultsDisplay();
+            }
+            
+            // 测试完成
+            progressBar.style.display = 'none';
+            infoText.style.display = 'none';
+            updateResultsDisplay();
+            updateLinkPreview();
+            
+            // 保存测速结果
+            saveTestResults(testResults);
+            
+            isTestRunning = false;
+        }
+        
+        // 测试单个网关速度 - 只测响应速度
+        async function testGateway(gateway) {
+            try {
+                const startTime = performance.now();
+                
+                // 构建请求 URL
+                const url = `${gateway}/${currentType}/${currentCID}`;
+                
+                // 使用 fetch 发起 HEAD 请求，仅测试响应速度
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000); // 10秒超时
+                
+                const response = await fetch(url, {
+                    method: 'HEAD', // 只请求头信息，不下载内容
+                    signal: controller.signal
+                });
+                
+                clearTimeout(timeoutId);
+                
+                // 计算响应时间
+                const ping = Math.round(performance.now() - startTime);
+                
+                // 添加测试结果
+                testResults.push({
+                    gateway,
+                    ping,
+                    status: response.ok ? 'success' : 'fail'
+                });
+                
+            } catch (error) {
+                // 请求出错
+                testResults.push({
+                    gateway,
+                    ping: 10000, // 默认最大值
+                    status: 'fail'
+                });
+            }
+        }
+        
+        // 修改悬停按钮组中的网关测速按钮
+        speedTestBtn.addEventListener('click', (e) => {
+            e.stopPropagation(); // 阻止事件冒泡
+            
+            // 尝试获取CID信息
+            let cid = null;
+            let type = null;
+            
+            // 尝试从当前悬停元素获取CID
+            if (currentHoveredElement) {
+                if (currentHoveredElement.dataset && currentHoveredElement.dataset.cid) {
+                    cid = currentHoveredElement.dataset.cid;
+                    type = currentHoveredElement.dataset.type;
+                } else if (currentHoveredElement.closest('a')) {
+                    const link = currentHoveredElement.closest('a');
+                    const linkCID = extractCID(link.href);
+                    if (linkCID) {
+                        cid = linkCID;
+                        type = detectLinkType(link.href);
+                    }
+                }
+            }
+            
+            // 如果无法从悬停元素获取，尝试从按钮组的数据属性获取
+            if (!cid && copyBtnGroup.dataset.lastCid) {
+                cid = copyBtnGroup.dataset.lastCid;
+                type = copyBtnGroup.dataset.lastType;
+            }
+            
+            if (cid) {
+                showSpeedTestWindow(cid, type);
+            } else {
+                alert("无法识别当前内容的CID，请重新尝试");
+            }
+        });
+        
+        // 关闭测速窗口
+        speedTestWindow.querySelector('.ipfs-speed-test-close').addEventListener('click', () => {
+            speedTestWindow.style.display = 'none';
+            isTestRunning = false;
+        });
+        
+        // 开始测速按钮
+        speedTestWindow.querySelector('.ipfs-start-test').addEventListener('click', () => {
+            if (!isTestRunning) {
+                runSpeedTest();
+            }
+        });
+        
+        // 复制下载链接按钮
+        speedTestWindow.querySelector('.ipfs-copy-link').addEventListener('click', () => {
+            const linkPreview = speedTestWindow.querySelector('.ipfs-link-preview');
+            if (linkPreview.textContent && linkPreview.textContent !== '请先选择一个网关') {
+                const copyButton = speedTestWindow.querySelector('.ipfs-copy-link');
+                copyToClipboard(linkPreview.textContent, copyButton);
+            }
+        });
+        
+        // 在新标签页打开链接按钮
+        speedTestWindow.querySelector('.ipfs-open-link').addEventListener('click', () => {
+            const linkPreview = speedTestWindow.querySelector('.ipfs-link-preview');
+            if (linkPreview.textContent && linkPreview.textContent !== '请先选择一个网关') {
+                window.open(linkPreview.textContent, '_blank');
+            }
+        });
+        
+        // 清除测速结果按钮
+        speedTestWindow.querySelector('.ipfs-clear-results').addEventListener('click', () => {
+            testResults = [];
+            selectedGateway = null;
+            saveTestResults([]);
+            updateResultsDisplay();
+            updateLinkPreview();
+        });
+        
+        // 管理网关按钮
+        speedTestWindow.querySelector('.ipfs-manage-gateways').addEventListener('click', () => {
+            showGatewayManager();
+        });
+        
+        // 网关管理窗口
+        function showGatewayManager() {
+            const gatewayList = getGatewayList();
+            const textarea = gatewayManagerWindow.querySelector('.ipfs-gateway-list');
+            textarea.value = gatewayList.join('\n');
+            gatewayManagerWindow.style.display = 'block';
+        }
+        
+        // 关闭网关管理窗口
+        gatewayManagerWindow.querySelector('.ipfs-gateway-manager-close').addEventListener('click', () => {
+            gatewayManagerWindow.style.display = 'none';
+        });
+        
+        // 重置网关列表
+        gatewayManagerWindow.querySelector('.ipfs-reset-gateways').addEventListener('click', () => {
+            const textarea = gatewayManagerWindow.querySelector('.ipfs-gateway-list');
+            textarea.value = DEFAULT_GATEWAYS.join('\n');
+        });
+        
+        // 保存网关列表
+        gatewayManagerWindow.querySelector('.ipfs-save-gateways').addEventListener('click', () => {
+            const textarea = gatewayManagerWindow.querySelector('.ipfs-gateway-list');
+            const lines = textarea.value.split('\n').map(line => line.trim()).filter(line => line);
+            
+            // 验证网关格式
+            const validGateways = [];
+            const invalidGateways = [];
+            
+            for (const line of lines) {
+                if (line.startsWith('https://')) {
+                    validGateways.push(line.replace(/\/$/, '')); // 移除末尾斜杠
+                } else {
+                    invalidGateways.push(line);
+                }
+            }
+            
+            if (invalidGateways.length > 0) {
+                alert(`以下网关格式无效 (必须以 https:// 开头):\n${invalidGateways.join('\n')}`);
+                return;
+            }
+            
+            saveGatewayList(validGateways);
+            gatewayManagerWindow.style.display = 'none';
+            
+            // 清除之前的测速结果
+            testResults = [];
+            selectedGateway = null;
+            saveTestResults([]);
+            updateResultsDisplay();
+            alert('网关列表已保存！');
+        });
+
+        // 将showSpeedTestWindow函数返回，以便可以全局访问
+        return showSpeedTestWindow;
+    }
+
+    // 监听 IPFS 网关测速器 CID 输入框变化
+    speedTestWindow.querySelector('.ipfs-selected-cid-input').addEventListener('change', function() {
+        const newCID = this.value.trim();
+        if (newCID) {
+            // 自动检测是否为IPNS key
+            currentCID = newCID;
+            currentType = newCID.startsWith('k51') ? 'ipns' : 'ipfs';
+            
+            // 清除之前的测试结果，因为CID已经变化
+            testResults = [];
+            selectedGateway = null;
+            updateResultsDisplay();
+            updateLinkPreview();
+        }
+    });
+
+
+
+
+
+
+
+
+    //// 5. 添加油猴菜单命令 GM_registerMenuCommand 部分 ////
 
     // 切换右下角浮窗默认展开/收起状态
     GM_registerMenuCommand('切换右下角浮窗默认展开/收起状态', () => {
@@ -950,12 +1814,6 @@
         const newDefault = defaultCollapsed === 'true' ? 'false' : 'true';
         localStorage.setItem('ipfsCopyHelperDefaultCollapsed', newDefault);
         alert(`默认状态已更改为：${newDefault === 'true' ? '收起' : '展开'}`);
-    });
-
-    // 打开 IPFS-SCAN
-    GM_registerMenuCommand('打开 IPFS-SCAN', () => {
-        // 在新标签页打开 IPFS-SCAN
-        window.open('https://ipfs-scan.io/', '_blank');
     });
 
     // 创建排除网址的配置面板
@@ -978,17 +1836,17 @@
     `;
     document.body.appendChild(configPanel);
 
-    // 获取排除列表
+    //// 获取排除列表
     function getExcludedUrls() {
         return GM_getValue('excludedUrls', []);
     }
 
-    // 保存排除列表
+    //// 保存排除列表
     function saveExcludedUrls(urls) {
         GM_setValue('excludedUrls', urls);
     }
 
-    // 将URL模式转换为正则表达式
+    //// 将URL模式转换为正则表达式
     function urlPatternToRegex(pattern) {
         let escapedPattern = pattern
             .replace(/[.*+?^${}()|[\]\\]/g, '\\$&') // 转义特殊字符
@@ -996,7 +1854,7 @@
         return new RegExp(`^${escapedPattern}`, 'i');
     }
 
-    // 检查URL是否在排除列表中
+    //// 检查URL是否在排除列表中
     function isExcludedPage() {
         const currentUrl = window.location.href;
         const excludedUrls = getExcludedUrls();
@@ -1007,23 +1865,23 @@
         });
     }
 
-    // 显示配置面板
+    //// 显示排除网址的配置面板
     function showConfigPanel() {
         const excludedUrls = getExcludedUrls();
 
         // 如果没有保存的排除列表，则填入默认规则
         if (excludedUrls.length === 0) {
-            excludedUrls.push('*cangku.moe/admin/post/update/*');
+            excludedUrls.push('*cangku.moe/admin/post/*');
         }
 
         document.getElementById('excludeUrlList').value = excludedUrls.join('\n');
         configPanel.classList.add('visible');
     }
 
-    // 注册菜单命令：管理排除网址
+    //// 注册菜单命令：管理排除网址
     GM_registerMenuCommand('管理排除网址', showConfigPanel);
 
-    // 事件处理：添加当前页面
+    //// 事件处理：添加当前页面到排除列表
     document.getElementById('addCurrentUrl').addEventListener('click', () => {
         const textarea = document.getElementById('excludeUrlList');
         const currentUrl = window.location.href;
@@ -1035,7 +1893,7 @@
         }
     });
 
-    // 事件处理：保存排除列表
+    //// 事件处理：保存排除列表
     document.getElementById('saveExcludeList').addEventListener('click', () => {
         const urls = document.getElementById('excludeUrlList').value
             .split('\n')
@@ -1064,7 +1922,7 @@
         }
     });
 
-    // 事件处理：取消
+    //// 事件处理：取消
     document.getElementById('cancelConfig').addEventListener('click', () => {
         configPanel.classList.remove('visible');
     });
@@ -1072,12 +1930,12 @@
     // 设置纯文本 CID 复制下载链接的默认 IPFS 网关
     GM_registerMenuCommand('设置纯文本 CID 复制下载链接的默认 IPFS 网关', setGateway);
 
-    // 获取网关地址，优先使用用户设置的网关，默认 ipfs.io
+    //// 获取复制时默认网关地址，优先使用用户设置的网关，默认 ipfs.io
     function getGateway() {
         return GM_getValue('ipfsGateway', 'https://ipfs.io');
     }
 
-    // 设置网关地址
+    //// 设置复制时默认网关地址
     function setGateway() {
         const currentGateway = getGateway();
         const newGateway = prompt(
@@ -1121,6 +1979,24 @@
         batchButtonsContainer.classList.toggle('collapsed', isCollapsed);
         localStorage.setItem('ipfsCopyHelperCollapsed', isCollapsed);
     }
+    
+    // 打开 IPFS-SCAN
+    GM_registerMenuCommand('打开 IPFS-SCAN', () => {
+        // 在新标签页打开 IPFS-SCAN
+        window.open('https://ipfs-scan.io/', '_blank');
+    });
+
+    // 打开 IPFS 网关测速器
+    GM_registerMenuCommand('打开 IPFS 网关测速器', () => {
+        // 使用全局引用调用showSpeedTestWindow函数
+        if (globalShowSpeedTestWindow) {
+            globalShowSpeedTestWindow();
+        } else {
+            alert("网关测速功能尚未初始化，请稍后再试");
+        }
+    });
+
+    
 
     // 检查默认配置和初始化
     const defaultCollapsedState = localStorage.getItem('ipfsCopyHelperDefaultCollapsed');
@@ -1139,7 +2015,31 @@
 
 
 
+
     //// 5. 初始化 ////
+
+    // 初始化网关测速功能并保存showSpeedTestWindow函数引用
+    function initGatewaySpeedTest() {
+        // 初始化网关测速功能并获取showSpeedTestWindow函数引用
+        globalShowSpeedTestWindow = setupGatewaySpeedTest();
+    }
+
+    // 在脚本初始化部分调用 setupGatewaySpeedTest 函数
+    document.addEventListener('DOMContentLoaded', () => {
+        if (!isExcludedPage()) {
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true
+            });
+            // 初始化网关测速功能
+            initGatewaySpeedTest();
+            // 初始化页面扫描功能
+            initPageScan();
+        }
+    });
+    
+    // 确保在脚本加载后也调用
+    initGatewaySpeedTest();
 
     // 绑定批量按钮事件
     batchCopyBtn.addEventListener('click', batchCopyCIDs);
