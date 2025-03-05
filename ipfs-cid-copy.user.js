@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         IPFS CID Copy Helper
 // @namespace    http://tampermonkey.net/
-// @version      3.0
+// @version      3.1
 // @description  自动为网页中的 IPFS 链接和文本添加 CID 复制功能，可以管理排除网址，打开 IPFS-SCAN，以及对 CID 进行网关测速。
 // @author       cenglin123
 // @match        *://*/*
@@ -220,7 +220,7 @@
             transform: translate(-50%, -50%);
             width: 900px;
             max-width: 90vw;
-            height: 600px; /* 固定高度 */
+            // height: 750px; /* 固定高度 */
             max-height: 80vh;
             background: white;
             border-radius: 8px;
@@ -238,7 +238,7 @@
             font-size: 24px;
             font-weight: bold;
             margin-top: -5px;
-            margin-bottom: 20px;
+            margin-bottom: 10px;
             border-bottom: 1px solid #eee;
             padding-bottom: 10px;
             display: flex;
@@ -257,26 +257,18 @@
             flex-direction: column;
             gap: 15px;
         }
-
         .ipfs-speed-test-close {
             cursor: pointer;
             font-size: 24px;
             color: #666;
         }
-        .ipfs-speed-test-content {
-            flex: 1;
-            overflow-y: auto;
-            padding-right: 10px;
-            display: flex;
-            flex-direction: column;
-            gap: 15px;
-        }
         .ipfs-speed-test-results {
-            max-height: 200px;
+            max-height: 140px;
             overflow-y: auto;
             border: 1px solid #ddd;
             border-radius: 4px;
-            margin-bottom: 15px;
+            margin-top: 5px;
+            margin-bottom: 10px;
         }
         .ipfs-gateway-item {
             padding: 10px 15px;
@@ -340,14 +332,46 @@
             display: none;
             height: 10px;  /* 添加固定高度 */
         }
+        /* 修改链接预览区域CSS以支持横向滚动 */
         .ipfs-link-preview {
             padding: 10px 15px;
             border: 1px solid #ddd;
             border-radius: 4px;
             background-color: #f5f5f5;
-            word-break: break-all;
-            margin-bottom: 15px;
+            margin-top: -5px;
+            margin-bottom: 5px;
+            white-space: nowrap;      /* 防止文本换行 */
+            overflow-x: auto;         /* 添加横向滚动条 */
+            overflow-y: hidden;       /* 隐藏垂直滚动条 */
+            max-width: 100%;          /* 限制最大宽度 */
+            
+            /* 提升用户体验的额外样式 */
+            scrollbar-width: thin;    /* Firefox中使用细滚动条 */
+            scrollbar-color: #ccc transparent; /* Firefox中设置滚动条颜色 */
         }
+        
+        /* 为Webkit浏览器(Chrome、Safari等)定制滚动条样式 */
+        .ipfs-link-preview::-webkit-scrollbar {
+            height: 8px;              /* 滚动条高度 */
+        }
+        
+        .ipfs-link-preview::-webkit-scrollbar-track {
+            background: transparent;  /* 滚动条轨道背景 */
+        }
+        
+        .ipfs-link-preview::-webkit-scrollbar-thumb {
+            background-color: #ccc;   /* 滚动条颜色 */
+            border-radius: 4px;       /* 滚动条圆角 */
+        }
+        
+        /* 改进支持手机触摸滚动 */
+        @media (pointer: coarse) {
+            .ipfs-link-preview {
+                -webkit-overflow-scrolling: touch; /* 在iOS上启用惯性滚动 */
+                padding-bottom: 15px;              /* 在触摸设备上增加一些额外的空间 */
+            }
+        }
+
         .ipfs-button-group {
             display: flex;
             justify-content: space-between;
@@ -427,7 +451,7 @@
         }
         .ipfs-gateway-manager textarea {
             width: 100%;
-            height: 200px;
+            height: 150px;
             margin-bottom: 15px;
             padding: 10px;
             border: 1px solid #ddd;
@@ -446,7 +470,7 @@
             border-radius: 4px;
             background-color: #f8f8f8;
             word-break: break-all;
-            margin-bottom: 15px;
+            margin-bottom: 5px;
             display: flex;
             align-items: center;
         }
@@ -456,6 +480,15 @@
             white-space: nowrap;
         }
         .ipfs-selected-cid-input {
+            flex: 1;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            padding: 5px 8px;
+            font-family: monospace;
+            font-size: 13px;
+            background-color: white;
+        }
+        .ipfs-filename-input {
             flex: 1;
             border: 1px solid #ddd;
             border-radius: 3px;
@@ -908,15 +941,40 @@
                         const validFilename = info.filename && !info.filename.includes('/ipfs/')
                             ? info.filename
                             : (filenameFromText || cid);
+                            
+                        // 实现编码修复：先解码再编码
+                        let decodedFilename;
+                        try {
+                            decodedFilename = decodeURIComponent(validFilename);
+                        } catch (e) {
+                            decodedFilename = validFilename;
+                        }
+                        const encodedFilename = encodeURIComponent(decodedFilename);
+                            
                         if (!url.includes('?filename=')) {
-                            url += (url.includes('?') ? '&' : '?') + 'filename=' +
-                                encodeURIComponent(validFilename);
+                            url += (url.includes('?') ? '&' : '?') + 'filename=' + encodedFilename;
+                        } else {
+                            // 如果URL已经包含filename参数，但可能有编码问题，尝试修复它
+                            url = url.replace(/(\?|&)filename=([^&]*)/, 
+                                    (match, prefix, oldFilename) => `${prefix}filename=${encodedFilename}`);
                         }
                         return url;
                     }
                     const gateway = getGateway();
                     const filename = filenameFromText || cid;
-                    return `${gateway}/ipfs/${cid}?filename=${encodeURIComponent(filename)}`;
+                    
+                    // 编码修复：先解码再编码
+                    let decodedFilename;
+                    try {
+                        decodedFilename = decodeURIComponent(filename);
+                    } catch (e) {
+                        decodedFilename = filename;
+                    }
+                    const encodedFilename = encodeURIComponent(decodedFilename);
+                    
+                    // 修正参数名：filenames → filename
+                    return `${gateway}/ipfs/${cid}?filename=${encodedFilename}`;
+                
 
                 default:
                     return cid;
@@ -994,7 +1052,7 @@
     }
 
     // 显示复制按钮
-    function showCopyButton(x, y, cid, type, isLink = false) {
+    function showCopyButton(x, y, cid, type, isLink = false, url = null) {
         // 如果在排除列表中，不显示按钮
         if (isExcludedPage()) {
             return;
@@ -1010,13 +1068,16 @@
             showTimeout = null;
         }
     
-        // 保存CID信息到按钮组，供网关测速按钮使用
+        // 保存CID和相关信息到按钮组，供网关测速按钮使用
         copyBtnGroup.dataset.lastCid = cid;
         copyBtnGroup.dataset.lastType = type;
-    
-        copyBtnGroup.style.display = 'block';
-        copyBtnGroup.style.top = `${y + window.scrollY + 5}px`;
-        copyBtnGroup.style.left = `${x + window.scrollX}px`;
+        
+        // 保存URL信息，如果可用
+        if (url) {
+            copyBtnGroup.dataset.lastUrl = url;
+        } else {
+            delete copyBtnGroup.dataset.lastUrl;
+        }
     
         copyBtnGroup.style.display = 'block';
         copyBtnGroup.style.top = `${y + window.scrollY + 5}px`;
@@ -1100,17 +1161,17 @@
     let showTimeout = null;
 
     // 统一处理文本和链接的悬停
-    function handleElementHover(element, cid, type, isLink = false) {
+    function handleElementHover(element, cid, type, isLink = false, url = null) {
         // 首先检查是否在排除列表中
         if (isExcludedPage()) {
             return;
         }
-
+    
         if (currentHoveredElement === element) return;  // 如果是同一个元素，不重复处理
-
+    
         currentHoveredElement = element;
         const rect = element.getBoundingClientRect();
-
+    
         // 使用延时显示，避免快速划过时的闪烁
         if (showTimeout) {
             clearTimeout(showTimeout);
@@ -1121,7 +1182,8 @@
                 rect.bottom,
                 cid,
                 type,
-                isLink
+                isLink,
+                url
             );
         }, 50);
     }
@@ -1132,29 +1194,29 @@
         if (isExcludedPage()) {
             return;
         }
-
+    
         // 处理链接
         const link = e.target.closest('a');
         if (link) {
             const href = link.href;
             if (!href) return;
-
+    
             const linkCID = extractCID(href);
             if (!linkCID) return;
-
+    
             const shouldShow = isIPFSBrowsingPage(window.location.href) ||
                             linkCID !== extractCID(window.location.href);
-
+    
             if (shouldShow) {
-                handleElementHover(link, linkCID, detectLinkType(href), true); // 添加 isLink 参数
+                handleElementHover(link, linkCID, detectLinkType(href), true, href);
+                return;
             }
-            return;
         }
-
+    
         // 处理文本节点中的 CID
         const cidSpan = e.target.closest('[data-cid]');
         if (cidSpan && cidSpan.dataset.cid) {
-            handleElementHover(cidSpan, cidSpan.dataset.cid, cidSpan.dataset.type, false); // 添加 isLink 参数
+            handleElementHover(cidSpan, cidSpan.dataset.cid, cidSpan.dataset.type, false);
             return;
         }
     });
@@ -1262,6 +1324,10 @@
         <div class="ipfs-selected-cid-box">
             <span class="ipfs-selected-cid-label">当前选择CID/IPNS key (或手动输入)：</span>
             <input type="text" class="ipfs-selected-cid-input" placeholder="请输入CID或IPNS key">
+        </div>
+        <div class="ipfs-selected-cid-box">
+            <span class="ipfs-selected-cid-label">文件名 (可选)：</span>
+            <input type="text" class="ipfs-filename-input" placeholder="请输入或自动获取的文件名">
         </div>
         <div class="ipfs-speed-test-content">
             <div class="ipfs-speed-test-progress">
@@ -1452,7 +1518,7 @@
         }
         
         // 显示测速窗口
-        function showSpeedTestWindow(cid, type) {
+        function showSpeedTestWindow(cid, type, filename) {
             // 如果传入了CID，则使用传入的值，否则保持当前值
             if (cid) {
                 currentCID = cid;
@@ -1462,6 +1528,14 @@
             // 更新输入框的值
             if (cidInputElement && currentCID) {
                 cidInputElement.value = currentCID;
+            }
+            
+            // 更新文件名输入框的值
+            const filenameInputElement = speedTestWindow.querySelector('.ipfs-filename-input');
+            if (filenameInputElement && filename) {
+                filenameInputElement.value = filename;
+            } else if (filenameInputElement) {
+                filenameInputElement.value = ''; // 清空之前的值
             }
             
             // 加载保存的测试结果
@@ -1556,8 +1630,33 @@
                 return;
             }
             
-            const link = `${selectedGateway}/${currentType}/${currentCID}`;
+            // 获取文件名
+            const filenameInputElement = speedTestWindow.querySelector('.ipfs-filename-input');
+            let filename = filenameInputElement ? filenameInputElement.value.trim() : '';
+            
+            // 构建基本链接
+            let link = `${selectedGateway}/${currentType}/${currentCID}`;
+            
+            // 如果有文件名，添加到链接中
+            if (filename) {
+                // 处理文件名编码，去除多余的25占位符
+                const encodedFilename = encodeURIComponent(filename).replace(/%25/g, '%');
+                link += `?filename=${encodedFilename}`;
+            }
+            
             linkPreview.textContent = link;
+            
+            // 同时更新复制链接和打开链接按钮的行为
+            const copyLinkBtn = speedTestWindow.querySelector('.ipfs-copy-link');
+            const openLinkBtn = speedTestWindow.querySelector('.ipfs-open-link');
+            
+            copyLinkBtn.onclick = function() {
+                copyToClipboard(link, copyLinkBtn);
+            };
+            
+            openLinkBtn.onclick = function() {
+                window.open(link, '_blank');
+            };
         }
         
         // 执行网关测速
@@ -1651,33 +1750,108 @@
         speedTestBtn.addEventListener('click', (e) => {
             e.stopPropagation(); // 阻止事件冒泡
             
-            // 尝试获取CID信息
+            // 尝试获取CID和文件名信息
             let cid = null;
             let type = null;
+            let filename = null;
             
-            // 尝试从当前悬停元素获取CID
+            // 首先检查当前悬停的元素
             if (currentHoveredElement) {
+                console.log('当前悬停元素:', currentHoveredElement);
+                
+                // 检查是否是带有cid数据属性的元素
                 if (currentHoveredElement.dataset && currentHoveredElement.dataset.cid) {
                     cid = currentHoveredElement.dataset.cid;
                     type = currentHoveredElement.dataset.type;
-                } else if (currentHoveredElement.closest('a')) {
-                    const link = currentHoveredElement.closest('a');
+                    
+                    // 检查是否在文本内容中有文件名信息
+                    const textContent = currentHoveredElement.textContent || '';
+                    if (textContent.includes('filename=')) {
+                        const filenameMatch = textContent.match(/[?&]filename=([^&\n\r]+)/);
+                        if (filenameMatch) {
+                            try {
+                                filename = decodeURIComponent(filenameMatch[1]);
+                                console.log('从文本内容提取的文件名:', filename);
+                            } catch (e) {
+                                console.error('文件名解码错误:', e);
+                            }
+                        }
+                    }
+                } 
+                // 检查是否是链接元素或在链接内部
+                else if (currentHoveredElement.tagName === 'A' || currentHoveredElement.closest('a')) {
+                    const link = currentHoveredElement.tagName === 'A' ? 
+                                currentHoveredElement : currentHoveredElement.closest('a');
+                                
+                    console.log('从链接中提取信息:', link.href);
+                    
                     const linkCID = extractCID(link.href);
                     if (linkCID) {
                         cid = linkCID;
                         type = detectLinkType(link.href);
+                        
+                        // 尝试从链接中提取文件名 - 增强版
+                        try {
+                            // 首先尝试从URL参数获取
+                            const url = new URL(link.href);
+                            const filenameParam = url.searchParams.get('filename');
+                            
+                            if (filenameParam) {
+                                try {
+                                    filename = decodeURIComponent(filenameParam);
+                                    console.log('从URL参数提取的文件名:', filename);
+                                } catch (e) {
+                                    filename = filenameParam;
+                                    console.error('文件名解码错误:', e);
+                                }
+                            } 
+                            // 然后尝试从URL路径获取
+                            else {
+                                const extractedFilename = extractFilename(link.href, link.textContent);
+                                if (extractedFilename) {
+                                    filename = extractedFilename;
+                                    console.log('从URL路径或链接文本提取的文件名:', filename);
+                                }
+                            }
+                            
+                            // 最后，如果没有文件名，尝试使用链接的文本内容
+                            if (!filename && link.textContent && link.textContent.trim() && 
+                                !link.textContent.includes(cid) && !link.textContent.includes('...')) {
+                                filename = link.textContent.trim();
+                                console.log('使用链接文本作为文件名:', filename);
+                            }
+                        } catch (e) {
+                            console.error('从链接提取文件名失败:', e);
+                        }
                     }
                 }
             }
             
-            // 如果无法从悬停元素获取，尝试从按钮组的数据属性获取
+            // 如果未从当前悬停元素获取CID，尝试从按钮组数据属性获取
             if (!cid && copyBtnGroup.dataset.lastCid) {
                 cid = copyBtnGroup.dataset.lastCid;
                 type = copyBtnGroup.dataset.lastType;
+                console.log('从按钮组数据属性获取CID:', cid);
+                
+                // 尝试从复制按钮组数据属性获取更多信息
+                if (copyBtnGroup.dataset.lastUrl) {
+                    try {
+                        const url = new URL(copyBtnGroup.dataset.lastUrl);
+                        const filenameParam = url.searchParams.get('filename');
+                        if (filenameParam) {
+                            filename = decodeURIComponent(filenameParam);
+                            console.log('从按钮组URL提取的文件名:', filename);
+                        }
+                    } catch (e) {
+                        console.error('从按钮组URL提取文件名失败:', e);
+                    }
+                }
             }
             
+            // 如果有CID，显示测速窗口
             if (cid) {
-                showSpeedTestWindow(cid, type);
+                console.log('打开测速窗口:', cid, type, filename);
+                showSpeedTestWindow(cid, type, filename);
             } else {
                 alert("无法识别当前内容的CID，请重新尝试");
             }
@@ -2046,6 +2220,14 @@
     batchFilenameBtn.addEventListener('click', batchCopyFilenames);
     batchDownloadBtn.addEventListener('click', batchCopyDownloadLinks);
     toggleBtn.addEventListener('click', toggleCollapse);
+
+    // 监听文件名输入框变化
+    const filenameInputElement = speedTestWindow.querySelector('.ipfs-filename-input');
+    if (filenameInputElement) {
+        filenameInputElement.addEventListener('input', function() {
+            updateLinkPreview(); // 文件名变化时更新链接预览
+        });
+    }
 
     // 启动文本选择功能和初始扫描
     // initTextSelection();
