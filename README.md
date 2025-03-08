@@ -49,9 +49,6 @@
 
 ### 基本用法
 
-[测试 IPFS 链接](https://ipfs.io/ipfs/bafybeihzpvolsy7kt2ug37nwau2d4a5cfcl3bvafsssphpdw7voi5rjadm?filename=wukong.png)
-
-[测试 IPNS 链接](https://ipfs.io/ipns/k51qzi5uqu5dh1ts2qvcw3069src00zyjw0qmwdkb102k8q4ft8bztw75iwi25)
 
 1. **复制单个CID或链接**：
    - 将鼠标悬停在任何IPFS CID或链接上
