@@ -1896,6 +1896,7 @@
         }
         
         // 执行网关测速
+        // 执行网关测速 - 移动端优化版本
         async function runSpeedTest() {
             if (isTestRunning || !currentCID) return;
             
@@ -1912,8 +1913,8 @@
             infoText.style.display = 'block';
             infoText.textContent = '正在测速中，请稍候...';
             
-            // 并发测试多个网关
-            const MAX_CONCURRENT = 50;
+            // 移动端减少并发数量以避免性能问题
+            const MAX_CONCURRENT = isMobileDevice() ? 10 : 50; // 移动端降低到 10 个并发
             let completedCount = 0;
             
             for (let i = 0; i < gateways.length; i += MAX_CONCURRENT) {
@@ -1929,6 +1930,11 @@
                 
                 // 更新显示
                 updateResultsDisplay();
+                
+                // 移动端在批次间添加短暂延迟以避免过载
+                if (isMobileDevice() && i + MAX_CONCURRENT < gateways.length) {
+                    await new Promise(resolve => setTimeout(resolve, 500)); // 500ms 延迟
+                }
             }
             
             // 测试完成
@@ -1943,13 +1949,22 @@
             isTestRunning = false;
         }
         
-        // 测试单个网关速度 - 只测响应速度
+        // 检测是否为移动设备
+        function isMobileDevice() {
+            return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+                window.innerWidth <= 768 ||
+                ('ontouchstart' in window);
+        }
+
+        // 测试单个网关速度 - 移动端优化版本
         async function testGateway(gateway) {
             try {
                 const startTime = performance.now();
                 const url = `${gateway}/${currentType}/${currentCID}`;
                 
-                // 使用GM_xmlhttpRequest代替fetch，并添加双重超时保护
+                // 移动端使用更长的超时时间和更简单的请求
+                const timeoutDuration = isMobileDevice() ? 20000 : 10000; // 移动端 20 秒，桌面端 10 秒
+                
                 return new Promise((resolve) => {
                     let isResolved = false;
                     
@@ -1959,17 +1974,26 @@
                             isResolved = true;
                             testResults.push({
                                 gateway,
-                                ping: 10000,
+                                ping: timeoutDuration,
                                 status: 'fail'
                             });
                             resolve();
                         }
-                    }, 10000); // 10秒超时
+                    }, timeoutDuration);
+                    
+                    // 移动端优化：使用 GET 请求而不是 HEAD，因为某些移动浏览器对 HEAD 请求支持不好
+                    const requestMethod = isMobileDevice() ? 'GET' : 'HEAD';
                     
                     GM_xmlhttpRequest({
-                        method: 'HEAD',
+                        method: requestMethod,
                         url: url,
-                        timeout: 10000, // 10秒超时
+                        timeout: timeoutDuration,
+                        // 移动端添加更多的请求头以提高兼容性
+                        headers: isMobileDevice() ? {
+                            'User-Agent': navigator.userAgent,
+                            'Accept': '*/*',
+                            'Cache-Control': 'no-cache'
+                        } : {},
                         onload: function(response) {
                             if (!isResolved) {
                                 isResolved = true;
@@ -1978,7 +2002,7 @@
                                 testResults.push({
                                     gateway,
                                     ping,
-                                    status: response.status >= 200 && response.status < 300 ? 'success' : 'fail'
+                                    status: response.status >= 200 && response.status < 400 ? 'success' : 'fail' // 放宽状态码范围
                                 });
                                 resolve();
                             }
@@ -1989,7 +2013,7 @@
                                 clearTimeout(timeoutId);
                                 testResults.push({
                                     gateway,
-                                    ping: 10000,
+                                    ping: timeoutDuration,
                                     status: 'fail'
                                 });
                                 resolve();
@@ -2001,7 +2025,7 @@
                                 clearTimeout(timeoutId);
                                 testResults.push({
                                     gateway,
-                                    ping: 10000,
+                                    ping: timeoutDuration,
                                     status: 'fail'
                                 });
                                 resolve();
@@ -2010,9 +2034,10 @@
                     });
                 });
             } catch (error) {
+                const timeoutDuration = isMobileDevice() ? 20000 : 10000;
                 testResults.push({
                     gateway,
-                    ping: 10000,
+                    ping: timeoutDuration,
                     status: 'fail'
                 });
             }
