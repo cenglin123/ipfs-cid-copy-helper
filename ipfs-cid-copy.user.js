@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         IPFS CID Copy Helper
 // @namespace    http://tampermonkey.net/
-// @version      3.1
+// @version      3.2
 // @description  自动为网页中的 IPFS 链接和文本添加 CID 复制功能，可以管理排除网址，打开 IPFS-SCAN，以及对 CID 进行网关测速。
 // @author       cenglin123
 // @match        *://*/*
@@ -212,290 +212,525 @@
             margin-bottom: 10px;
         }
 
-        /* 网关测速窗口样式 */
+        /* 网关测速窗口 - 移动端优化 */
         .ipfs-speed-test-window {
             position: fixed;
-            top: 50%;
+            top: 15px;
             left: 50%;
-            transform: translate(-50%, -50%);
-            width: 900px;
-            max-width: 90vw;
-            // height: 750px; /* 固定高度 */
-            max-height: 80vh;
+            transform: translateX(-50%);
+            width: min(450px, 95vw);
+            max-height: calc(100vh - 30px);
+            min-height: 300px;
             background: white;
             border-radius: 8px;
             box-shadow: 0 4px 20px rgba(0,0,0,0.3);
             z-index: 10001;
-            padding: 20px;
+            padding: 0;
             display: flex;
             flex-direction: column;
             overflow: hidden;
-            // resize: none; /* 防止用户调整大小 */
+            border: 1px solid #e0e0e0;
         }
         
-        /* 添加标题栏拖动样式 */
+        /* 标题栏优化 */
         .ipfs-speed-test-title {
-            font-size: 24px;
-            font-weight: bold;
-            margin-top: -5px;
-            margin-bottom: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            margin: 0;
+            padding: 12px 15px 10px 15px;
             border-bottom: 1px solid #eee;
-            padding-bottom: 10px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            cursor: move; /* 显示拖动光标 */
-            user-select: none; /* 防止文本被选中 */
+            cursor: move;
+            user-select: none;
+            background: #f8f9fa;
+            border-radius: 8px 8px 0 0;
+            min-height: 18px;
+            flex-shrink: 0;
         }
-        
-        /* 确保内容区域可滚动 */
+
+        /* 内容区域 - 紧凑间距 */
         .ipfs-speed-test-content {
             flex: 1;
             overflow-y: auto;
-            padding-right: 10px;
+            padding: 12px 15px 15px 15px;
             display: flex;
             flex-direction: column;
-            gap: 15px;
+            gap: 8px;
+            min-height: 0;
         }
+        
+        /* 关闭按钮 */
         .ipfs-speed-test-close {
             cursor: pointer;
-            font-size: 24px;
+            font-size: 18px;
             color: #666;
+            padding: 3px;
+            border-radius: 3px;
+            transition: all 0.2s ease;
+            line-height: 1;
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
+            
+        .ipfs-speed-test-close:hover {
+            background-color: #f0f0f0;
+            color: #333;
+        }
+        
+        /* 测试结果区域 */
         .ipfs-speed-test-results {
-            max-height: 140px;
+            max-height: 160px;
             overflow-y: auto;
             border: 1px solid #ddd;
-            border-radius: 4px;
-            margin-top: 5px;
-            margin-bottom: 10px;
+            border-radius: 6px;
+            margin: 0;
+            background: #fafafa;
         }
+        
         .ipfs-gateway-item {
-            padding: 10px 15px;
+            padding: 8px 12px;
             border-bottom: 1px solid #eee;
             display: flex;
             justify-content: space-between;
             align-items: center;
             cursor: pointer;
-            transition: background-color 0.2s;
+            transition: all 0.2s ease;
+            background: white;
         }
+        
         .ipfs-gateway-item:last-child {
             border-bottom: none;
         }
+        
         .ipfs-gateway-item:hover {
             background-color: #f0f7ff;
         }
+        
         .ipfs-gateway-item.selected {
             background-color: #e3f0ff;
+            border-left: 4px solid #4a90e2;
         }
+        
         .ipfs-gateway-url {
-            font-weight: bold;
+            font-weight: 500;
             flex: 1;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 12px;
+            margin-right: 8px;
         }
+        
         .ipfs-gateway-ping {
-            margin-left: 10px;
             color: #555;
-            width: 70px;
+            width: 50px;
             text-align: right;
+            font-weight: 500;
+            font-size: 12px;
         }
+        
         .ipfs-gateway-status {
-            margin-left: 10px;
-            width: 40px;
+            margin-left: 6px;
+            width: 30px;
             text-align: center;
+            font-weight: bold;
+            font-size: 12px;
         }
+        
         .ipfs-gateway-status.success {
             color: #4caf50;
         }
+        
         .ipfs-gateway-status.fail {
             color: #f44336;
         }
+        
+        /* 进度条 */
         .ipfs-speed-test-progress {
             height: 4px;
             background-color: #eee;
-            margin-top: 5px;
-            margin-bottom: 5px;
+            margin: 4px 0;
             border-radius: 2px;
             overflow: hidden;
             display: none;
         }
+        
         .ipfs-speed-test-progress-bar {
             height: 100%;
-            background-color: #4a90e2;
+            background: linear-gradient(90deg, #4a90e2, #5cb3ff);
             width: 0%;
-            transition: width 0.3s;
-        }
-        .ipfs-speed-test-info {
-            font-size: 14px;
-            color: #666;
-            margin-top: -10px;
-            margin-bottom: 5px;
-            display: none;
-            height: 10px;  /* 添加固定高度 */
-        }
-        /* 修改链接预览区域CSS以支持横向滚动 */
-        .ipfs-link-preview {
-            padding: 10px 15px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            background-color: #f5f5f5;
-            margin-top: -5px;
-            margin-bottom: 5px;
-            white-space: nowrap;      /* 防止文本换行 */
-            overflow-x: auto;         /* 添加横向滚动条 */
-            overflow-y: hidden;       /* 隐藏垂直滚动条 */
-            max-width: 100%;          /* 限制最大宽度 */
-            
-            /* 提升用户体验的额外样式 */
-            scrollbar-width: thin;    /* Firefox中使用细滚动条 */
-            scrollbar-color: #ccc transparent; /* Firefox中设置滚动条颜色 */
+            transition: width 0.3s ease;
+            border-radius: 2px;
         }
         
-        /* 为Webkit浏览器(Chrome、Safari等)定制滚动条样式 */
+        /* 信息提示 */
+        .ipfs-speed-test-info {
+            font-size: 13px;
+            color: #666;
+            margin: 0;
+            display: none;
+            height: 14px;
+            line-height: 14px;
+        }
+        
+        /* 链接预览 */
+        .ipfs-link-preview {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            background-color: #f8f9fa;
+            margin: 0;
+            white-space: nowrap;
+            overflow-x: auto;
+            overflow-y: hidden;
+            max-width: 100%;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 12px;
+            scrollbar-width: thin;
+            scrollbar-color: #ccc transparent;
+        }
+        
         .ipfs-link-preview::-webkit-scrollbar {
-            height: 8px;              /* 滚动条高度 */
+            height: 6px;
         }
         
         .ipfs-link-preview::-webkit-scrollbar-track {
-            background: transparent;  /* 滚动条轨道背景 */
+            background: transparent;
         }
         
         .ipfs-link-preview::-webkit-scrollbar-thumb {
-            background-color: #ccc;   /* 滚动条颜色 */
-            border-radius: 4px;       /* 滚动条圆角 */
+            background-color: #ccc;
+            border-radius: 3px;
         }
         
-        /* 改进支持手机触摸滚动 */
+        /* 移动端优化 */
         @media (pointer: coarse) {
             .ipfs-link-preview {
-                -webkit-overflow-scrolling: touch; /* 在iOS上启用惯性滚动 */
-                padding-bottom: 15px;              /* 在触摸设备上增加一些额外的空间 */
+                -webkit-overflow-scrolling: touch;
+                padding-bottom: 15px;
+            }
+            
+            .ipfs-speed-test-window {
+                width: 95vw;
+                max-height: calc(100vh - 20px);
+                top: 10px;
+            }
+            
+            .ipfs-speed-test-title {
+                padding: 20px 15px 15px 15px;
+                min-height: 25px;
             }
         }
 
+        /* 按钮组样式保持不变 */
         .ipfs-button-group {
             display: flex;
             justify-content: space-between;
             gap: 10px;
+            margin-top: 10px;
         }
+        
+        /* 按钮网格布局 - 移动端优化 */
+        .ipfs-button-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+            margin-top: 5px;
+        }
+        
         .ipfs-button {
-            padding: 8px 15px;
-            border-radius: 4px;
+            padding: 8px 10px;
+            border-radius: 5px;
             border: none;
             cursor: pointer;
-            font-size: 14px;
-            font-weight: bold;
-            flex: 1;
+            font-size: 13px;
+            font-weight: 500;
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 5px;
+            gap: 4px;
+            transition: all 0.2s ease;
+            min-height: 36px;
         }
+        
+        .ipfs-button.ipfs-full-width {
+            grid-column: 1 / -1;
+        }
+        
+        .ipfs-btn-text {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
         .ipfs-primary-button {
             background-color: #4a90e2;
             color: white;
         }
+        
         .ipfs-primary-button:hover {
             background-color: #357abd;
+            transform: translateY(-1px);
         }
+        
         .ipfs-secondary-button {
             background-color: #f0f0f0;
             color: #333;
         }
+        
         .ipfs-secondary-button:hover {
             background-color: #e0e0e0;
+            transform: translateY(-1px);
         }
+        
         .ipfs-danger-button {
             background-color: #f5f5f5;
             color: #d32f2f;
         }
+        
         .ipfs-danger-button:hover {
             background-color: #fbe9e7;
+            transform: translateY(-1px);
         }
         
-        /* 网关管理窗口样式 */
+        /* 网关管理窗口 */
         .ipfs-gateway-manager {
             position: fixed;
-            top: 50%;
+            top: 30px;
             left: 50%;
-            transform: translate(-50%, -50%);
-            width: 500px;
-            max-width: 90vw;
+            transform: translateX(-50%);
+            width: min(400px, 90vw);
+            max-height: calc(100vh - 60px);
             background: white;
             border-radius: 8px;
             box-shadow: 0 4px 20px rgba(0,0,0,0.3);
             z-index: 10002;
-            padding: 20px;
+            padding: 0;
             display: flex;
             flex-direction: column;
+            border: 1px solid #e0e0e0;
         }
         
-        /* 网关管理窗口标题栏样式 */
         .ipfs-gateway-manager-title {
-            font-size: 22px;
-            font-weight: bold;
-            margin-top: -5px;
-            margin-bottom: 15px;
+            font-size: 16px;
+            font-weight: 600;
+            margin: 0;
+            padding: 12px 15px 10px 15px;
             border-bottom: 1px solid #eee;
-            padding-bottom: 10px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            cursor: move; /* 显示拖动光标 */
-            user-select: none; /* 防止文本被选中 */
+            cursor: move;
+            user-select: none;
+            background: #f8f9fa;
+            border-radius: 8px 8px 0 0;
+            flex-shrink: 0;
         }
 
         .ipfs-gateway-manager-close {
             cursor: pointer;
-            font-size: 24px;
+            font-size: 18px;
             color: #666;
-        }
-        .ipfs-gateway-manager textarea {
-            width: 100%;
-            height: 150px;
-            margin-bottom: 15px;
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            resize: vertical;
-            font-family: monospace;
-        }
-        .ipfs-gateway-manager-help {
-            font-size: 13px;
-            color: #666;
-            margin-bottom: 15px;
-        }
-        .ipfs-selected-cid-box {
-            padding: 10px 15px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            background-color: #f8f8f8;
-            word-break: break-all;
-            margin-bottom: 5px;
+            padding: 3px;
+            border-radius: 3px;
+            transition: all 0.2s ease;
+            width: 24px;
+            height: 24px;
             display: flex;
             align-items: center;
+            justify-content: center;
         }
+        
+        .ipfs-gateway-manager-close:hover {
+            background-color: #f0f0f0;
+            color: #333;
+        }
+        
+        .ipfs-gateway-manager-content {
+            padding: 12px 15px 15px 15px;
+            flex: 1;
+            overflow-y: auto;
+        }
+        
+        .ipfs-gateway-manager textarea {
+            width: 100%;
+            height: 120px;
+            margin-bottom: 10px;
+            padding: 8px 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            resize: vertical;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 12px;
+        }
+        
+        .ipfs-gateway-manager-help {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 10px;
+            line-height: 1.3;
+        }
+        
+
+        /* 移动端按钮组 */
+        .ipfs-button-group.ipfs-mobile-buttons {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        
+        .ipfs-button-group .ipfs-button {
+            flex: 1;
+        }
+        
+        /* 移动端特定优化 */
+        @media screen and (max-width: 480px) {
+            .ipfs-speed-test-window {
+                width: 95vw;
+                top: 10px;
+                max-height: calc(100vh - 20px);
+            }
+            
+            .ipfs-speed-test-title,
+            .ipfs-gateway-manager-title {
+                font-size: 15px;
+                padding: 10px 12px 8px 12px;
+            }
+            
+            .ipfs-speed-test-content,
+            .ipfs-gateway-manager-content {
+                padding: 10px 12px 12px 12px;
+                gap: 6px;
+            }
+            
+            .ipfs-selected-cid-box {
+                padding: 6px 10px;
+                flex-direction: column;
+                align-items: stretch;
+                gap: 4px;
+            }
+            
+            .ipfs-selected-cid-label {
+                font-size: 12px;
+            }
+            
+            .ipfs-selected-cid-input,
+            .ipfs-filename-input {
+                font-size: 11px;
+                padding: 4px 6px;
+            }
+            
+            .ipfs-button-grid {
+                grid-template-columns: 1fr;
+                gap: 4px;
+            }
+            
+            .ipfs-button {
+                padding: 6px 8px;
+                font-size: 12px;
+                min-height: 32px;
+            }
+            
+            .ipfs-gateway-url {
+                font-size: 11px;
+            }
+            
+            .ipfs-gateway-ping,
+            .ipfs-gateway-status {
+                font-size: 11px;
+            }
+            
+            .ipfs-gateway-manager {
+                width: 95vw;
+                top: 10px;
+            }
+            
+            .ipfs-gateway-manager textarea {
+                height: 100px;
+                font-size: 11px;
+            }
+        }
+        
+        /* 超小屏幕优化 */
+        @media screen and (max-height: 500px) {
+            .ipfs-speed-test-window,
+            .ipfs-gateway-manager {
+                top: 5px;
+                max-height: calc(100vh - 10px);
+            }
+            
+            .ipfs-speed-test-results {
+                max-height: 100px;
+            }
+            
+            .ipfs-gateway-manager textarea {
+                height: 80px;
+            }
+        }
+
+        /* CID输入框优化 */
+        .ipfs-selected-cid-box {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            background-color: #f8f9fa;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 0;
+        }
+        
         .ipfs-selected-cid-label {
-            font-weight: bold;
-            margin-right: 5px;
+            font-weight: 500;
             white-space: nowrap;
+            color: #333;
+            font-size: 13px;
+            min-width: fit-content;
         }
+        
         .ipfs-selected-cid-input {
             flex: 1;
             border: 1px solid #ddd;
-            border-radius: 3px;
-            padding: 5px 8px;
-            font-family: monospace;
+            border-radius: 4px;
+            padding: 6px 10px;
+            font-family: 'Consolas', 'Monaco', monospace;
             font-size: 13px;
             background-color: white;
+            transition: border-color 0.2s ease;
         }
+        
+        .ipfs-selected-cid-input:focus {
+            outline: none;
+            border-color: #4a90e2;
+        }
+        
         .ipfs-filename-input {
             flex: 1;
             border: 1px solid #ddd;
-            border-radius: 3px;
+            border-radius: 4px;
             padding: 5px 8px;
-            font-family: monospace;
-            font-size: 13px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 12px;
             background-color: white;
+            transition: border-color 0.2s ease;
+            min-width: 0;
+        }
+        
+        .ipfs-filename-input:focus {
+            outline: none;
+            border-color: #4a90e2;
+        }
+        
+        /* 防止窗口被遮挡的额外样式 */
+        @media screen and (max-height: 600px) {
+            .ipfs-speed-test-window,
+            .ipfs-gateway-manager {
+                top: 10px;
+                max-height: calc(100vh - 20px);
+            }
         }
     `);
 
@@ -1321,92 +1556,92 @@
             <span>IPFS 网关测速器</span>
             <span class="ipfs-speed-test-close">&times;</span>
         </div>
-        <div class="ipfs-selected-cid-box">
-            <span class="ipfs-selected-cid-label">当前选择CID/IPNS key (或手动输入)：</span>
-            <input type="text" class="ipfs-selected-cid-input" placeholder="请输入CID或IPNS key">
-        </div>
-        <div class="ipfs-selected-cid-box">
-            <span class="ipfs-selected-cid-label">文件名 (可选)：</span>
-            <input type="text" class="ipfs-filename-input" placeholder="请输入或自动获取的文件名">
-        </div>
         <div class="ipfs-speed-test-content">
+            <div class="ipfs-selected-cid-box">
+                <span class="ipfs-selected-cid-label">CID/IPNS:</span>
+                <input type="text" class="ipfs-selected-cid-input" placeholder="输入CID或IPNS key">
+            </div>
+            <div class="ipfs-selected-cid-box">
+                <span class="ipfs-selected-cid-label">文件名:</span>
+                <input type="text" class="ipfs-filename-input" placeholder="输入文件名(可选)">
+            </div>
             <div class="ipfs-speed-test-progress">
                 <div class="ipfs-speed-test-progress-bar"></div>
             </div>
             <div class="ipfs-speed-test-info">正在测速中，请稍候...</div>
             <div class="ipfs-speed-test-results"></div>
             <div class="ipfs-link-preview"></div>
-            <div class="ipfs-button-group">
+            <div class="ipfs-button-grid">
                 <button class="ipfs-button ipfs-primary-button ipfs-copy-link">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                         <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
                     </svg>
-                    复制下载链接
+                    <span class="ipfs-btn-text">复制链接</span>
                 </button>
                 <button class="ipfs-button ipfs-primary-button ipfs-open-link">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
                         <polyline points="15 3 21 3 21 9"></polyline>
                         <line x1="10" y1="14" x2="21" y2="3"></line>
                     </svg>
-                    在新标签页打开
+                    <span class="ipfs-btn-text">新标签打开</span>
                 </button>
-            </div>
-            <div class="ipfs-button-group">
                 <button class="ipfs-button ipfs-secondary-button ipfs-start-test">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <polyline points="23 4 23 10 17 10"></polyline>
                         <polyline points="1 20 1 14 7 14"></polyline>
                         <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
                     </svg>
-                    开始测速
+                    <span class="ipfs-btn-text">开始测速</span>
                 </button>
                 <button class="ipfs-button ipfs-secondary-button ipfs-manage-gateways">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <circle cx="12" cy="12" r="3"></circle>
                         <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
                     </svg>
-                    管理网关
+                    <span class="ipfs-btn-text">管理网关</span>
                 </button>
-                <button class="ipfs-button ipfs-danger-button ipfs-clear-results">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <button class="ipfs-button ipfs-danger-button ipfs-clear-results ipfs-full-width">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <polyline points="3 6 5 6 21 6"></polyline>
                         <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                     </svg>
-                    清除测速结果
+                    <span class="ipfs-btn-text">清除测速结果</span>
                 </button>
             </div>
         </div>
     `;
 
-    // 填充网关管理窗口内容
+    // 填充网关管理窗口内容 - 移动端优化版本
     gatewayManagerWindow.innerHTML = `
         <div class="ipfs-gateway-manager-title">
             <span>管理测速网关</span>
             <span class="ipfs-gateway-manager-close">&times;</span>
         </div>
-        <div class="ipfs-gateway-manager-help">
-            每行输入一个网关地址，必须以 https:// 开头。<br>
-            例如：https://ipfs.io
-        </div>
-        <textarea class="ipfs-gateway-list"></textarea>
-        <div class="ipfs-button-group">
-            <button class="ipfs-button ipfs-secondary-button ipfs-reset-gateways">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M23 4v6h-6"></path>
-                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
-                </svg>
-                重置为默认
-            </button>
-            <button class="ipfs-button ipfs-primary-button ipfs-save-gateways">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
-                    <polyline points="17 21 17 13 7 13 7 21"></polyline>
-                    <polyline points="7 3 7 8 15 8"></polyline>
-                </svg>
-                保存修改
-            </button>
+        <div class="ipfs-gateway-manager-content">
+            <div class="ipfs-gateway-manager-help">
+                每行输入一个网关地址，必须以 https:// 开头<br>
+                例如：https://ipfs.io
+            </div>
+            <textarea class="ipfs-gateway-list" placeholder="输入网关地址，每行一个..."></textarea>
+            <div class="ipfs-button-group ipfs-mobile-buttons">
+                <button class="ipfs-button ipfs-secondary-button ipfs-reset-gateways">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M23 4v6h-6"></path>
+                        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                    </svg>
+                    <span class="ipfs-btn-text">重置</span>
+                </button>
+                <button class="ipfs-button ipfs-primary-button ipfs-save-gateways">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                        <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                        <polyline points="7 3 7 8 15 8"></polyline>
+                    </svg>
+                    <span class="ipfs-btn-text">保存</span>
+                </button>
+            </div>
         </div>
     `;
     // 网关测速功能
@@ -1711,36 +1946,45 @@
         async function testGateway(gateway) {
             try {
                 const startTime = performance.now();
-                
-                // 构建请求 URL
                 const url = `${gateway}/${currentType}/${currentCID}`;
                 
-                // 使用 fetch 发起 HEAD 请求，仅测试响应速度
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 10000); // 10秒超时
-                
-                const response = await fetch(url, {
-                    method: 'HEAD', // 只请求头信息，不下载内容
-                    signal: controller.signal
+                // 使用GM_xmlhttpRequest代替fetch
+                return new Promise((resolve) => {
+                    GM_xmlhttpRequest({
+                        method: 'HEAD',
+                        url: url,
+                        timeout: 10000, // 10秒超时
+                        onload: function(response) {
+                            const ping = Math.round(performance.now() - startTime);
+                            testResults.push({
+                                gateway,
+                                ping,
+                                status: response.status >= 200 && response.status < 300 ? 'success' : 'fail'
+                            });
+                            resolve();
+                        },
+                        ontimeout: function() {
+                            testResults.push({
+                                gateway,
+                                ping: 10000,
+                                status: 'fail'
+                            });
+                            resolve();
+                        },
+                        onerror: function() {
+                            testResults.push({
+                                gateway,
+                                ping: 10000,
+                                status: 'fail'
+                            });
+                            resolve();
+                        }
+                    });
                 });
-                
-                clearTimeout(timeoutId);
-                
-                // 计算响应时间
-                const ping = Math.round(performance.now() - startTime);
-                
-                // 添加测试结果
-                testResults.push({
-                    gateway,
-                    ping,
-                    status: response.ok ? 'success' : 'fail'
-                });
-                
             } catch (error) {
-                // 请求出错
                 testResults.push({
                     gateway,
-                    ping: 10000, // 默认最大值
+                    ping: 10000,
                     status: 'fail'
                 });
             }
@@ -1880,12 +2124,19 @@
         });
         
         // 在新标签页打开链接按钮
-        speedTestWindow.querySelector('.ipfs-open-link').addEventListener('click', () => {
+        speedTestWindow.querySelector('.ipfs-open-link').addEventListener('click', (e) => {
+            // 阻止其他监听器执行
+            e.stopImmediatePropagation();
+            
+            console.log("点击事件触发，目标元素:", e.target);
+            console.trace();
+            
             const linkPreview = speedTestWindow.querySelector('.ipfs-link-preview');
             if (linkPreview.textContent && linkPreview.textContent !== '请先选择一个网关') {
+                console.log("准备打开:", linkPreview.textContent);
                 window.open(linkPreview.textContent, '_blank');
             }
-        });
+        }, true); // 注意这里使用捕获阶段
         
         // 清除测速结果按钮
         speedTestWindow.querySelector('.ipfs-clear-results').addEventListener('click', () => {
