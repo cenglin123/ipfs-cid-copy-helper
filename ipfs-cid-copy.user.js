@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         IPFS CID Copy Helper
 // @namespace    http://tampermonkey.net/
-// @version      3.2
+// @version      3.3
 // @description  自动为网页中的 IPFS 链接和文本添加 CID 复制功能，可以管理排除网址，打开 IPFS-SCAN，以及对 CID 进行网关测速。
 // @author       cenglin123
 // @match        *://*/*
@@ -10,6 +10,7 @@
 // @grant        GM_xmlhttpRequest
 // @grant        GM_getValue
 // @grant        GM_setValue
+// @connect      *
 // @homepage     https://github.com/cenglin123/ipfs-cid-copy-helper
 // @updateURL    https://github.com/cenglin123/ipfs-cid-copy-helper/raw/main/ipfs-cid-copy.user.js
 // @downloadURL  https://github.com/cenglin123/ipfs-cid-copy-helper/raw/main/ipfs-cid-copy.user.js
@@ -1948,36 +1949,63 @@
                 const startTime = performance.now();
                 const url = `${gateway}/${currentType}/${currentCID}`;
                 
-                // 使用GM_xmlhttpRequest代替fetch
+                // 使用GM_xmlhttpRequest代替fetch，并添加双重超时保护
                 return new Promise((resolve) => {
+                    let isResolved = false;
+                    
+                    // JavaScript 层面的超时保护
+                    const timeoutId = setTimeout(() => {
+                        if (!isResolved) {
+                            isResolved = true;
+                            testResults.push({
+                                gateway,
+                                ping: 10000,
+                                status: 'fail'
+                            });
+                            resolve();
+                        }
+                    }, 10000); // 10秒超时
+                    
                     GM_xmlhttpRequest({
                         method: 'HEAD',
                         url: url,
                         timeout: 10000, // 10秒超时
                         onload: function(response) {
-                            const ping = Math.round(performance.now() - startTime);
-                            testResults.push({
-                                gateway,
-                                ping,
-                                status: response.status >= 200 && response.status < 300 ? 'success' : 'fail'
-                            });
-                            resolve();
+                            if (!isResolved) {
+                                isResolved = true;
+                                clearTimeout(timeoutId);
+                                const ping = Math.round(performance.now() - startTime);
+                                testResults.push({
+                                    gateway,
+                                    ping,
+                                    status: response.status >= 200 && response.status < 300 ? 'success' : 'fail'
+                                });
+                                resolve();
+                            }
                         },
                         ontimeout: function() {
-                            testResults.push({
-                                gateway,
-                                ping: 10000,
-                                status: 'fail'
-                            });
-                            resolve();
+                            if (!isResolved) {
+                                isResolved = true;
+                                clearTimeout(timeoutId);
+                                testResults.push({
+                                    gateway,
+                                    ping: 10000,
+                                    status: 'fail'
+                                });
+                                resolve();
+                            }
                         },
                         onerror: function() {
-                            testResults.push({
-                                gateway,
-                                ping: 10000,
-                                status: 'fail'
-                            });
-                            resolve();
+                            if (!isResolved) {
+                                isResolved = true;
+                                clearTimeout(timeoutId);
+                                testResults.push({
+                                    gateway,
+                                    ping: 10000,
+                                    status: 'fail'
+                                });
+                                resolve();
+                            }
                         }
                     });
                 });
