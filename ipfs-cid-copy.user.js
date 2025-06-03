@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         IPFS CID Copy Helper
 // @namespace    http://tampermonkey.net/
-// @version      3.3
+// @version      3.4
 // @description  自动为网页中的 IPFS 链接和文本添加 CID 复制功能，可以管理排除网址，打开 IPFS-SCAN，以及对 CID 进行网关测速。
 // @author       cenglin123
 // @match        *://*/*
@@ -10,7 +10,6 @@
 // @grant        GM_xmlhttpRequest
 // @grant        GM_getValue
 // @grant        GM_setValue
-// @connect      *
 // @homepage     https://github.com/cenglin123/ipfs-cid-copy-helper
 // @updateURL    https://github.com/cenglin123/ipfs-cid-copy-helper/raw/main/ipfs-cid-copy.user.js
 // @downloadURL  https://github.com/cenglin123/ipfs-cid-copy-helper/raw/main/ipfs-cid-copy.user.js
@@ -1896,7 +1895,6 @@
         }
         
         // 执行网关测速
-        // 执行网关测速 - 移动端优化版本
         async function runSpeedTest() {
             if (isTestRunning || !currentCID) return;
             
@@ -1913,8 +1911,8 @@
             infoText.style.display = 'block';
             infoText.textContent = '正在测速中，请稍候...';
             
-            // 移动端减少并发数量以避免性能问题
-            const MAX_CONCURRENT = isMobileDevice() ? 10 : 50; // 移动端降低到 10 个并发
+            // 并发测试多个网关
+            const MAX_CONCURRENT = 50;
             let completedCount = 0;
             
             for (let i = 0; i < gateways.length; i += MAX_CONCURRENT) {
@@ -1930,11 +1928,6 @@
                 
                 // 更新显示
                 updateResultsDisplay();
-                
-                // 移动端在批次间添加短暂延迟以避免过载
-                if (isMobileDevice() && i + MAX_CONCURRENT < gateways.length) {
-                    await new Promise(resolve => setTimeout(resolve, 500)); // 500ms 延迟
-                }
             }
             
             // 测试完成
@@ -1949,95 +1942,40 @@
             isTestRunning = false;
         }
         
-        // 检测是否为移动设备
-        function isMobileDevice() {
-            return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
-                window.innerWidth <= 768 ||
-                ('ontouchstart' in window);
-        }
-
-        // 测试单个网关速度 - 移动端优化版本
+        // 测试单个网关速度 - 只测响应速度
         async function testGateway(gateway) {
             try {
                 const startTime = performance.now();
+                
+                // 构建请求 URL
                 const url = `${gateway}/${currentType}/${currentCID}`;
                 
-                // 移动端使用更长的超时时间和更简单的请求
-                const timeoutDuration = isMobileDevice() ? 20000 : 10000; // 移动端 20 秒，桌面端 10 秒
+                // 使用 fetch 发起 HEAD 请求，仅测试响应速度
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000); // 10秒超时
                 
-                return new Promise((resolve) => {
-                    let isResolved = false;
-                    
-                    // JavaScript 层面的超时保护
-                    const timeoutId = setTimeout(() => {
-                        if (!isResolved) {
-                            isResolved = true;
-                            testResults.push({
-                                gateway,
-                                ping: timeoutDuration,
-                                status: 'fail'
-                            });
-                            resolve();
-                        }
-                    }, timeoutDuration);
-                    
-                    // 移动端优化：使用 GET 请求而不是 HEAD，因为某些移动浏览器对 HEAD 请求支持不好
-                    const requestMethod = isMobileDevice() ? 'GET' : 'HEAD';
-                    
-                    GM_xmlhttpRequest({
-                        method: requestMethod,
-                        url: url,
-                        timeout: timeoutDuration,
-                        // 移动端添加更多的请求头以提高兼容性
-                        headers: isMobileDevice() ? {
-                            'User-Agent': navigator.userAgent,
-                            'Accept': '*/*',
-                            'Cache-Control': 'no-cache'
-                        } : {},
-                        onload: function(response) {
-                            if (!isResolved) {
-                                isResolved = true;
-                                clearTimeout(timeoutId);
-                                const ping = Math.round(performance.now() - startTime);
-                                testResults.push({
-                                    gateway,
-                                    ping,
-                                    status: response.status >= 200 && response.status < 400 ? 'success' : 'fail' // 放宽状态码范围
-                                });
-                                resolve();
-                            }
-                        },
-                        ontimeout: function() {
-                            if (!isResolved) {
-                                isResolved = true;
-                                clearTimeout(timeoutId);
-                                testResults.push({
-                                    gateway,
-                                    ping: timeoutDuration,
-                                    status: 'fail'
-                                });
-                                resolve();
-                            }
-                        },
-                        onerror: function() {
-                            if (!isResolved) {
-                                isResolved = true;
-                                clearTimeout(timeoutId);
-                                testResults.push({
-                                    gateway,
-                                    ping: timeoutDuration,
-                                    status: 'fail'
-                                });
-                                resolve();
-                            }
-                        }
-                    });
+                const response = await fetch(url, {
+                    method: 'HEAD', // 只请求头信息，不下载内容
+                    signal: controller.signal
                 });
-            } catch (error) {
-                const timeoutDuration = isMobileDevice() ? 20000 : 10000;
+                
+                clearTimeout(timeoutId);
+                
+                // 计算响应时间
+                const ping = Math.round(performance.now() - startTime);
+                
+                // 添加测试结果
                 testResults.push({
                     gateway,
-                    ping: timeoutDuration,
+                    ping,
+                    status: response.ok ? 'success' : 'fail'
+                });
+                
+            } catch (error) {
+                // 请求出错
+                testResults.push({
+                    gateway,
+                    ping: 10000, // 默认最大值
                     status: 'fail'
                 });
             }
@@ -2176,7 +2114,15 @@
             }
         });
         
-        // 在新标签页打开链接按钮
+        // // 在新标签页打开链接按钮
+        // speedTestWindow.querySelector('.ipfs-open-link').addEventListener('click', () => {
+        //     const linkPreview = speedTestWindow.querySelector('.ipfs-link-preview');
+        //     if (linkPreview.textContent && linkPreview.textContent !== '请先选择一个网关') {
+        //         window.open(linkPreview.textContent, '_blank');
+        //     }
+        // });
+
+        // // 在新标签页打开链接按钮 修改你的点击事件处理
         speedTestWindow.querySelector('.ipfs-open-link').addEventListener('click', (e) => {
             // 阻止其他监听器执行
             e.stopImmediatePropagation();
