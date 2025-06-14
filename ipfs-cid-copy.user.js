@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         IPFS CID Copy Helper
 // @namespace    http://tampermonkey.net/
-// @version      3.4
+// @version      3.5
 // @description  自动为网页中的 IPFS 链接和文本添加 CID 复制功能，可以管理排除网址，打开 IPFS-SCAN，以及对 CID 进行网关测速。
 // @author       cenglin123
 // @match        *://*/*
@@ -11,10 +11,10 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @homepage     https://github.com/cenglin123/ipfs-cid-copy-helper
-// @updateURL    https://github.com/cenglin123/ipfs-cid-copy-helper/raw/main/ipfs-cid-copy.user.js
-// @downloadURL  https://github.com/cenglin123/ipfs-cid-copy-helper/raw/main/ipfs-cid-copy.user.js
 // @supportURL   https://github.com/cenglin123/ipfs-cid-copy-helper/issues
 // @license MIT
+// @downloadURL https://update.greasyfork.org/scripts/514613/IPFS%20CID%20Copy%20Helper.user.js
+// @updateURL https://update.greasyfork.org/scripts/514613/IPFS%20CID%20Copy%20Helper.meta.js
 // ==/UserScript==
 
 (function() {
@@ -2272,10 +2272,28 @@
 
     //// 将URL模式转换为正则表达式
     function urlPatternToRegex(pattern) {
-        let escapedPattern = pattern
-            .replace(/[.*+?^${}()|[\]\\]/g, '\\$&') // 转义特殊字符
-            .replace(/\\\*/g, '.*'); // 还原 * 为通配符
-        return new RegExp(`^${escapedPattern}`, 'i');
+        // 1. 先转义所有正则表达式的特殊字符，防止注入
+        let regexString = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+
+        // 2. 将用户输入的通配符 * 转换成正则表达式的 .* (匹配任意字符)
+        // 之前的转义会把 * 变成 \*，所以我们在这里把它换回来
+        regexString = regexString.replace(/\\\*/g, '.*');
+
+        // 3. 根据用户是否在开头或结尾使用通配符来决定是否添加 ^ 和 $
+        // ^ 表示字符串开始，$ 表示字符串结束
+        // 这让匹配更精确，避免 "example.com" 匹配到 "example.com.org"
+        
+        // 如果模式不是以 '*' 开头，就在正则表达式前面加上 '^'，要求从头匹配
+        if (!pattern.startsWith('*')) {
+            regexString = '^' + regexString;
+        }
+
+        // 如果模式不是以 '*' 结尾，就在正则表达式后面加上 '$'，要求匹配到结尾
+        if (!pattern.endsWith('*')) {
+            regexString += '$';
+        }
+
+        return new RegExp(regexString, 'i'); // 'i' 表示不区分大小写
     }
 
     //// 检查URL是否在排除列表中
