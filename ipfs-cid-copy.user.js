@@ -2270,40 +2270,47 @@
         GM_setValue('excludedUrls', urls);
     }
 
-    //// 将URL模式转换为正则表达式
+    //// 将URL模式转换为正则表达式（改进版）
     function urlPatternToRegex(pattern) {
-        // 1. 先转义所有正则表达式的特殊字符，防止注入
-        let regexString = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
-
-        // 2. 将用户输入的通配符 * 转换成正则表达式的 .* (匹配任意字符)
-        // 之前的转义会把 * 变成 \*，所以我们在这里把它换回来
-        regexString = regexString.replace(/\\\*/g, '.*');
-
-        // 3. 根据用户是否在开头或结尾使用通配符来决定是否添加 ^ 和 $
-        // ^ 表示字符串开始，$ 表示字符串结束
-        // 这让匹配更精确，避免 "example.com" 匹配到 "example.com.org"
-        
-        // 如果模式不是以 '*' 开头，就在正则表达式前面加上 '^'，要求从头匹配
-        if (!pattern.startsWith('*')) {
-            regexString = '^' + regexString;
+        // 先处理特殊的通配符模式
+        if (pattern.startsWith('*') && pattern.endsWith('*')) {
+            // 形如 *example.com* 的模式，匹配包含该内容的URL
+            const middle = pattern.slice(1, -1);
+            const escapedMiddle = middle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            return new RegExp(escapedMiddle, 'i');
+        } else if (pattern.startsWith('*')) {
+            // 形如 *example.com/path 的模式
+            const suffix = pattern.slice(1);
+            const escapedSuffix = suffix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            return new RegExp(escapedSuffix + '$', 'i');
+        } else if (pattern.endsWith('*')) {
+            // 形如 https://example.com/* 的模式
+            const prefix = pattern.slice(0, -1);
+            const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            return new RegExp('^' + escapedPrefix, 'i');
+        } else {
+            // 完整匹配，但允许URL参数和锚点
+            const escapedPattern = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            return new RegExp('^' + escapedPattern + '(\\?.*|#.*)?$', 'i');
         }
-
-        // 如果模式不是以 '*' 结尾，就在正则表达式后面加上 '$'，要求匹配到结尾
-        if (!pattern.endsWith('*')) {
-            regexString += '$';
-        }
-
-        return new RegExp(regexString, 'i'); // 'i' 表示不区分大小写
     }
 
-    //// 检查URL是否在排除列表中
+    //// 检查URL是否在排除列表中（改进版）
     function isExcludedPage() {
         const currentUrl = window.location.href;
         const excludedUrls = getExcludedUrls();
+        
+        console.log('当前URL:', currentUrl);
+        console.log('排除规则:', excludedUrls);
 
         return excludedUrls.some(pattern => {
-            const regex = urlPatternToRegex(pattern);
-            return regex.test(currentUrl);
+            if (!pattern.trim()) return false;
+            
+            const regex = urlPatternToRegex(pattern.trim());
+            const isMatch = regex.test(currentUrl);
+            
+            console.log(`规则 "${pattern}" -> 正则: ${regex} -> 匹配结果: ${isMatch}`);
+            return isMatch;
         });
     }
 
