@@ -30,15 +30,9 @@
         'https://gw.crustgw.work',
         'https://gw.crust-gateway.xyz',
         'https://gateway.pinata.cloud',
-        'https://content.sado.space',
-        'https://ipfs03.food-chain.it',
         'https://ipfs.hypha.coop',
         'https://gw.ipfs-lens.dev',
-        'https://ipfs-us1.apillon.io',
-        'https://flk-ipfs.xyz',
         'https://i0.img2ipfs.com',
-        'https://gw.w3ipfs.net:7443',
-        'https://gw.w3ipfs.cn:10443',
         'https://ipfs.interface.social',
         'https://ipfs-5.yoghourt.cloud ',
         'https://ipfs-8.yoghourt.cloud',
@@ -52,7 +46,6 @@
         'https://ipfs.runfission.com',
         'https://nftstorage.link',
         'https://ipfs.raribleuserdata.com',
-        'https://gw.smallwolf.me',
         'https://eth.sucks',
     ];
 
@@ -2272,39 +2265,70 @@
 
     //// 将URL模式转换为正则表达式
     function urlPatternToRegex(pattern) {
-        // 1. 先转义所有正则表达式的特殊字符，防止注入
-        let regexString = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
-    
-        // 2. 将用户输入的通配符 * 转换成正则表达式的 .* (匹配任意字符)
-        // 之前的转义会把 * 变成 \*，所以我们在这里把它换回来
-        regexString = regexString.replace(/\\\*/g, '.*');
-    
-        // 3. 根据用户是否在开头或结尾使用通配符来决定是否添加 ^ 和 $
-        // ^ 表示字符串开始，$ 表示字符串结束
-        // 这让匹配更精确，避免 "example.com" 匹配到 "example.com.org"
+        // 先处理通配符，避免被转义
+        let escapedPattern = pattern
+            .replace(/\*/g, '___WILDCARD___') // 临时替换通配符
+            .replace(/[.*+?^${}()|[\]\\]/g, '\\$&') // 转义其他特殊字符
+            .replace(/___WILDCARD___/g, '.*'); // 还原通配符为正则表达式
         
-        // 如果模式不是以 '*' 开头，就在正则表达式前面加上 '^'，要求从头匹配
-        if (!pattern.startsWith('*')) {
-            regexString = '^' + regexString;
+        // 根据模式决定是否需要完全匹配
+        if (pattern.startsWith('*') && pattern.endsWith('*')) {
+            // 两端都有通配符，包含匹配
+            return new RegExp(escapedPattern, 'i');
+        } else if (pattern.startsWith('*')) {
+            // 开头有通配符，结尾匹配
+            return new RegExp(escapedPattern + '$', 'i');
+        } else if (pattern.endsWith('*')) {
+            // 结尾有通配符，开头匹配
+            return new RegExp('^' + escapedPattern, 'i');
+        } else {
+            // 没有通配符，完全匹配
+            return new RegExp('^' + escapedPattern + '$', 'i');
         }
-    
-        // 如果模式不是以 '*' 结尾，就在正则表达式后面加上 '$'，要求匹配到结尾
-        if (!pattern.endsWith('*')) {
-            regexString += '$';
-        }
-    
-        return new RegExp(regexString, 'i'); // 'i' 表示不区分大小写
     }
-
-    //// 检查URL是否在排除列表中
+    
+    //// 优化的URL匹配检查函数（增加缓存机制）
+    let urlCheckCache = null;
+    let lastCheckUrl = '';
+    
     function isExcludedPage() {
         const currentUrl = window.location.href;
+        
+        // 如果URL没有变化，直接返回缓存结果
+        if (currentUrl === lastCheckUrl && urlCheckCache !== null) {
+            return urlCheckCache;
+        }
+        
         const excludedUrls = getExcludedUrls();
-
-        return excludedUrls.some(pattern => {
-            const regex = urlPatternToRegex(pattern);
-            return regex.test(currentUrl);
+        
+        const result = excludedUrls.some(pattern => {
+            // 跳过空模式
+            if (!pattern || !pattern.trim()) {
+                return false;
+            }
+            
+            pattern = pattern.trim();
+            
+            try {
+                const regex = urlPatternToRegex(pattern);
+                return regex.test(currentUrl);
+            } catch (error) {
+                // 静默处理错误，避免控制台spam
+                return false;
+            }
         });
+        
+        // 更新缓存
+        lastCheckUrl = currentUrl;
+        urlCheckCache = result;
+        
+        return result;
+    }
+
+    //// 清理缓存的函数（当排除列表更新时调用）
+    function clearUrlCheckCache() {
+        urlCheckCache = null;
+        lastCheckUrl = '';
     }
 
     //// 显示排除网址的配置面板
@@ -2336,6 +2360,7 @@
     });
 
     //// 事件处理：保存排除列表
+    //////// 修改保存排除列表的函数，增加缓存清理
     document.getElementById('saveExcludeList').addEventListener('click', () => {
         const urls = document.getElementById('excludeUrlList').value
             .split('\n')
@@ -2343,6 +2368,7 @@
             .filter(url => url);
 
         saveExcludedUrls(urls);
+        clearUrlCheckCache(); // 清理缓存
         configPanel.classList.remove('visible');
 
         // 保存后检查并清理
@@ -2364,10 +2390,28 @@
         }
     });
 
+    //// 防抖函数 - 限制函数调用频率
+    function debounce(func, wait) {
+        let timeout;
+        return function executedFunction(...args) {
+            const later = () => {
+                clearTimeout(timeout);
+                func(...args);
+            };
+            clearTimeout(timeout);
+            timeout = setTimeout(later, wait);
+        };
+    }
+
     //// 事件处理：取消
     document.getElementById('cancelConfig').addEventListener('click', () => {
         configPanel.classList.remove('visible');
     });
+
+
+
+
+
 
     // 设置纯文本 CID 复制下载链接的默认 IPFS 网关
     GM_registerMenuCommand('设置纯文本 CID 复制下载链接的默认 IPFS 网关', setGateway);
