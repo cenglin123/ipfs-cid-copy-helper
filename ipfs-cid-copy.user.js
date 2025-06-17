@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         IPFS CID Copy Helper
 // @namespace    http://tampermonkey.net/
-// @version      3.5
+// @version      3.6
 // @description  自动为网页中的 IPFS 链接和文本添加 CID 复制功能，可以管理排除网址，打开 IPFS-SCAN，以及对 CID 进行网关测速。
 // @author       cenglin123
 // @match        *://*/*
@@ -1316,14 +1316,37 @@
             copyToClipboard(cid, copyBtn);
         };
     
+        // // 只为纯文本CID显示下载链接按钮
+        // if (!isLink) {
+        //     copyLinkBtn.style.display = 'inline-block';
+        //     copyLinkBtn.textContent = '复制下载链接';
+        //     copyLinkBtn.onclick = () => {
+        //         const gateway = getGateway();
+        //         const downloadLink = `${gateway}/ipfs/${cid}`;
+        //         copyToClipboard(downloadLink, copyLinkBtn);
+        //     };
+        // } else {
+        //     copyLinkBtn.style.display = 'none';
+        // }
+
         // 只为纯文本CID显示下载链接按钮
         if (!isLink) {
             copyLinkBtn.style.display = 'inline-block';
-            copyLinkBtn.textContent = '复制下载链接';
+            copyLinkBtn.textContent = '用默认网关打开';
             copyLinkBtn.onclick = () => {
                 const gateway = getGateway();
-                const downloadLink = `${gateway}/ipfs/${cid}`;
-                copyToClipboard(downloadLink, copyLinkBtn);
+                let downloadLink;
+                
+                // 检测是否为IPNS Key
+                if (cid.match(/^k51[a-zA-Z0-9]{1,}$/i)) {
+                    downloadLink = `${gateway}/ipns/${cid}`;
+                } else {
+                    // 默认作为IPFS CID处理
+                    downloadLink = `${gateway}/ipfs/${cid}`;
+                }
+                
+                // 直接在新标签页打开链接
+                window.open(downloadLink, '_blank');
             };
         } else {
             copyLinkBtn.style.display = 'none';
@@ -2413,19 +2436,19 @@
 
 
 
-    // 设置纯文本 CID 复制下载链接的默认 IPFS 网关
-    GM_registerMenuCommand('设置纯文本 CID 复制下载链接的默认 IPFS 网关', setGateway);
+    // 设置纯文本 CID/IPNS 打开链接的默认网关
+    GM_registerMenuCommand('设置纯文本 CID/IPNS 打开链接的默认网关', setGateway);
 
-    //// 获取复制时默认网关地址，优先使用用户设置的网关，默认 ipfs.io
+    //// 获取默认网关地址，优先使用用户设置的网关，默认 ipfs.io
     function getGateway() {
         return GM_getValue('ipfsGateway', 'https://ipfs.io');
     }
 
-    //// 设置复制时默认网关地址
+    //// 设置默认网关地址
     function setGateway() {
         const currentGateway = getGateway();
         const newGateway = prompt(
-            '请输入复制纯文本 CID 下载链接的 IPFS 网关（含 https://）：\n' +
+            '请输入打开纯文本 CID/IPNS 链接的 IPFS 网关（含 https://）：\n' +
             '留空则使用默认网关 https://ipfs.io',
             currentGateway
         );
