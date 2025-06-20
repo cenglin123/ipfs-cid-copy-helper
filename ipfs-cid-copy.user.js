@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         IPFS CID Copy Helper
 // @namespace    http://tampermonkey.net/
-// @version      3.6
+// @version      3.7
 // @description  自动为网页中的 IPFS 链接和文本添加 CID 复制功能，可以管理排除网址，打开 IPFS-SCAN，以及对 CID 进行网关测速。
 // @author       cenglin123
 // @match        *://*/*
@@ -903,11 +903,42 @@
         if (isExcludedPage()) {
             return;
         }
-
+    
+        // 检查是否在测速窗口相关区域内
+        if (node.nodeType === Node.ELEMENT_NODE) {
+            const element = node;
+            if (element.closest && (
+                element.closest('.ipfs-speed-test-window') ||
+                element.closest('.ipfs-gateway-manager') ||
+                element.closest('.ipfs-config-panel') ||
+                element.closest('.ipfs-link-preview') ||
+                element.closest('.ipfs-speed-test-results') ||
+                element.closest('.ipfs-copy-btn-group')
+            )) {
+                return;
+            }
+        }
+    
         if (node.nodeType === Node.TEXT_NODE) {
+            // 检查父元素是否在排除区域内
+            let parent = node.parentElement;
+            while (parent) {
+                if (parent.classList && (
+                    parent.classList.contains('ipfs-speed-test-window') ||
+                    parent.classList.contains('ipfs-gateway-manager') ||
+                    parent.classList.contains('ipfs-config-panel') ||
+                    parent.classList.contains('ipfs-link-preview') ||
+                    parent.classList.contains('ipfs-speed-test-results') ||
+                    parent.classList.contains('ipfs-copy-btn-group')
+                )) {
+                    return;
+                }
+                parent = parent.parentElement;
+            }
+    
             let hasMatch = false;
             let matches = [];
-
+    
             // 收集所有匹配
             for (const pattern of CID_PATTERNS) {
                 const patternMatches = [...node.textContent.matchAll(new RegExp(pattern, 'g'))];
@@ -916,12 +947,12 @@
                     hasMatch = true;
                 }
             }
-
+    
             if (hasMatch) {
                 const container = document.createElement('span');
                 container.style.position = 'relative';
                 container.textContent = node.textContent;
-
+    
                 // 将匹配的 CID 添加到 linkInfo
                 matches.forEach(match => {
                     const cid = match[0];
@@ -936,14 +967,14 @@
                             isLink: false // 标记这是文本
                         });
                     }
-
+    
                     // 为每个CID创建一个内部span
                     const cidSpan = document.createElement('span');
                     cidSpan.style.position = 'relative';
                     cidSpan.textContent = cid;
                     cidSpan.dataset.cid = cid;
                     cidSpan.dataset.type = type;
-
+    
                     // 替换原文本中的CID
                     const textBefore = container.textContent.substring(0, match.index);
                     const textAfter = container.textContent.substring(match.index + cid.length);
@@ -952,11 +983,21 @@
                     container.appendChild(cidSpan);
                     if (textAfter) container.appendChild(document.createTextNode(textAfter));
                 });
-
+    
                 // 添加鼠标事件监听器
                 container.addEventListener('mouseover', function(e) {
                     const target = e.target;
                     if (target.dataset && target.dataset.cid) {
+                        // 再次检查是否在排除区域内
+                        if (target.closest('.ipfs-speed-test-window') ||
+                            target.closest('.ipfs-gateway-manager') ||
+                            target.closest('.ipfs-config-panel') ||
+                            target.closest('.ipfs-link-preview') ||
+                            target.closest('.ipfs-speed-test-results') ||
+                            target.closest('.ipfs-copy-btn-group')) {
+                            return;
+                        }
+    
                         const rect = target.getBoundingClientRect();
                         showCopyButton(
                             rect.left + (rect.width / 2),
@@ -966,7 +1007,7 @@
                         );
                     }
                 });
-
+    
                 node.parentNode.replaceChild(container, node);
             }
         } else if (node.nodeType === Node.ELEMENT_NODE &&
@@ -977,48 +1018,61 @@
 
     // 扫描页面超链接的函数
     function scanPageForLinks() {
-        // 首先检查是否在排除列表中
         if (isExcludedPage()) {
             console.log('当前页面在排除列表中，停止扫描');
-            // 清理已有的批量按钮
             batchButtonsContainer.classList.remove('visible');
             return;
         }
-
+    
         linkInfo.clear();
-
-        // 先扫描文本节点，确保文本 CID 在后面
+    
+        // 先扫描文本节点
         scanTextNodes(document.body);
-
-        // 再扫描链接
+    
         const currentPageCID = extractCID(window.location.href);
         const currentPageBase = window.location.origin + window.location.pathname.split('/').slice(0, -1).join('/');
-
+    
         const links = document.getElementsByTagName('a');
+    
         for (const link of links) {
             const cid = extractCID(link.href);
-            if (!cid) continue; // 只过滤无效的 CID，不再过滤当前页面的 CID
-
+            if (!cid) continue;
+    
             try {
                 const linkUrl = new URL(link.href);
                 const linkBase = linkUrl.origin + linkUrl.pathname.split('/').slice(0, -1).join('/');
                 if (linkBase === currentPageBase) continue;
-
-                const existingInfo = linkInfo.get(cid);
+    
                 const filename = extractFilename(link.href, link.textContent);
-
-                linkInfo.set(cid, {
-                    type: detectLinkType(link.href),
+                const linkType = detectLinkType(link.href);
+    
+                // 改进：区分真实文件和子目录
+                const isRealFile = filename && 
+                                  !filename.match(/^(Qm[a-zA-Z0-9]{44}|baf[a-zA-Z0-9]+|k51[a-zA-Z0-9]+)$/i) &&
+                                  (filename.includes('.') || filename.length < 50);
+    
+                // 跳过明显的子目录（没有文件名或文件名就是CID的情况）
+                if (!isRealFile && (!filename || filename === cid)) {
+                    continue;
+                }
+    
+                // 为每个文件创建唯一的key，允许相同CID的不同文件名共存
+                const uniqueKey = filename ? `${cid}|${filename}` : cid;
+    
+                linkInfo.set(uniqueKey, {
+                    cid: cid,  // 保存原始CID
+                    type: linkType,
                     url: link.href,
                     text: link.textContent.trim(),
                     filename: filename,
-                    isLink: true
+                    isLink: true,
+                    isRealFile: isRealFile
                 });
             } catch (e) {
                 console.error('URL解析错误:', e);
             }
         }
-
+    
         updateBatchButtons();
     }
 
@@ -1028,18 +1082,26 @@
         if (filenameParam) {
             return decodeURIComponent(filenameParam);
         }
-
+    
         const pathParts = new URL(url).pathname.split('/');
         const lastPart = pathParts[pathParts.length - 1];
-
+    
+        // 如果URL路径的最后一部分不是CID，则作为文件名
         if (lastPart && !lastPart.match(/^(Qm[a-zA-Z0-9]{44}|baf[a-zA-Z0-9]+|k51[a-zA-Z0-9]+)$/i)) {
             return decodeURIComponent(lastPart);
         }
-
-        if (linkText && linkText.trim() && !linkText.includes('...')) {
-            return linkText.trim();
+    
+        // 改进：优先检查链接文本是否为有效文件名
+        if (linkText && linkText.trim()) {
+            const cleanText = linkText.trim();
+            // 检查是否为文件名格式（包含扩展名或不是CID格式）
+            if ((cleanText.includes('.') || !cleanText.match(/^(Qm[a-zA-Z0-9]{44}|baf[a-zA-Z0-9]+|k51[a-zA-Z0-9]+)$/i)) 
+                && !cleanText.includes('...') 
+                && cleanText.length < 100) { // 避免过长的文本
+                return cleanText;
+            }
         }
-
+    
         return null;
     }
 
@@ -1124,7 +1186,7 @@
     function batchCopyItems(type, button) {
         const validEntries = getValidEntries();
         const totalCount = validEntries.length;
-
+    
         if (totalCount === 0) {
             const originalText = button.innerHTML;
             button.textContent = '没有可用的项目';
@@ -1133,7 +1195,10 @@
             }, 1000);
             return;
         }
-        const items = validEntries.map(([cid, info]) => {
+    
+        const items = validEntries.map(([uniqueKey, info]) => {
+            const cid = info.cid || uniqueKey; // 获取实际的CID
+            
             let filenameFromText = null;
             if (!info.isLink && info.text) {
                 const cidIndex = info.text.indexOf(cid);
@@ -1149,28 +1214,31 @@
                     }
                 }
             }
-
+    
             switch (type) {
                 case 'cid':
                     return cid;
-
+    
                 case 'filename':
-                    if (info.filename && !info.filename.includes('/ipfs/')) {
+                    // 优先使用真实的文件名
+                    if (info.filename && !info.filename.includes('/ipfs/') && 
+                        !info.filename.match(/^(Qm[a-zA-Z0-9]{44}|baf[a-zA-Z0-9]+|k51[a-zA-Z0-9]+)$/i)) {
                         return info.filename;
                     }
                     if (filenameFromText) {
                         return filenameFromText;
                     }
+                    // 最后才使用CID作为文件名
                     return cid;
-
+    
                 case 'url':
                     if (info.isLink && info.url) {
                         let url = info.url;
-                        const validFilename = info.filename && !info.filename.includes('/ipfs/')
+                        const validFilename = (info.filename && !info.filename.includes('/ipfs/') && 
+                                            !info.filename.match(/^(Qm[a-zA-Z0-9]{44}|baf[a-zA-Z0-9]+|k51[a-zA-Z0-9]+)$/i))
                             ? info.filename
                             : (filenameFromText || cid);
                             
-                        // 实现编码修复：先解码再编码
                         let decodedFilename;
                         try {
                             decodedFilename = decodeURIComponent(validFilename);
@@ -1182,16 +1250,17 @@
                         if (!url.includes('?filename=')) {
                             url += (url.includes('?') ? '&' : '?') + 'filename=' + encodedFilename;
                         } else {
-                            // 如果URL已经包含filename参数，但可能有编码问题，尝试修复它
                             url = url.replace(/(\?|&)filename=([^&]*)/, 
                                     (match, prefix, oldFilename) => `${prefix}filename=${encodedFilename}`);
                         }
                         return url;
                     }
-                    const gateway = getGateway();
-                    const filename = filenameFromText || cid;
                     
-                    // 编码修复：先解码再编码
+                    const gateway = getGateway();
+                    const filename = filenameFromText || (info.filename && 
+                        !info.filename.match(/^(Qm[a-zA-Z0-9]{44}|baf[a-zA-Z0-9]+|k51[a-zA-Z0-9]+)$/i) 
+                        ? info.filename : cid);
+                    
                     let decodedFilename;
                     try {
                         decodedFilename = decodeURIComponent(filename);
@@ -1200,42 +1269,60 @@
                     }
                     const encodedFilename = encodeURIComponent(decodedFilename);
                     
-                    // 修正参数名：filenames → filename
                     return `${gateway}/ipfs/${cid}?filename=${encodedFilename}`;
-                
-
+    
                 default:
                     return cid;
             }
         });
-
+    
         const formattedItems = items.join('\n');
         copyToClipboard(formattedItems, button);
     }
 
+    // getValidEntries 函数，改进条目过滤逻辑
     function getValidEntries() {
-        // 定义要排除的 CID 列表
         const excludedCIDs = [
             'bafybeiczsscdsbs7ffqz55asqdf3smv6klcw3gofszvwlyarci47bgf354',
             'QmUNLLsPACCz1vLxQVkXqqLX5R1X345qqfHbsf67hvA3Nn'
         ];
         const currentPageCID = extractCID(window.location.href);
-
-        // 获取并过滤条目
+    
         return Array.from(linkInfo.entries())
-            .filter(([cid]) => {
+            .filter(([uniqueKey, info]) => {
+                const cid = info.cid || uniqueKey; // 获取实际的CID
+                
                 // 排除当前页面的 CID
                 if (cid === currentPageCID) return false;
-
-                // 排除空文件夹 CID（根据CID版本选择比较方式）
-                return !excludedCIDs.some(excluded => {
-                    // CID v0 (Qm开头) - 大小写敏感
+    
+                // 排除空文件夹 CID
+                const isExcludedCID = excludedCIDs.some(excluded => {
                     if (excluded.startsWith('Qm')) {
                         return excluded === cid;
                     }
-                    // CID v1 (baf开头) - 大小写不敏感
                     return excluded.toLowerCase() === cid.toLowerCase();
                 });
+                if (isExcludedCID) return false;
+    
+                // 如果没有有效的文件名，且不是真实文件，则可能是子目录CID，考虑排除
+                if (!info.filename || info.filename.match(/^(Qm[a-zA-Z0-9]{44}|baf[a-zA-Z0-9]+|k51[a-zA-Z0-9]+)$/i)) {
+                    // 如果文件名就是CID本身，很可能是子目录，排除
+                    if (info.filename === cid) {
+                        return false;
+                    }
+                    // 如果链接文本也是CID格式，很可能是子目录
+                    if (info.text && info.text.match(/^(Qm[a-zA-Z0-9]{44}|baf[a-zA-Z0-9]+|k51[a-zA-Z0-9]+)$/i)) {
+                        return false;
+                    }
+                }
+    
+                return true;
+            })
+            // 按文件名排序，确保相同文件的不同版本按字母顺序排列
+            .sort(([uniqueKeyA, infoA], [uniqueKeyB, infoB]) => {
+                const filenameA = infoA.filename || infoA.cid || uniqueKeyA;
+                const filenameB = infoB.filename || infoB.cid || uniqueKeyB;
+                return filenameA.localeCompare(filenameB);
             });
     }
 
@@ -1316,20 +1403,8 @@
             copyToClipboard(cid, copyBtn);
         };
     
-        // // 只为纯文本CID显示下载链接按钮
-        // if (!isLink) {
-        //     copyLinkBtn.style.display = 'inline-block';
-        //     copyLinkBtn.textContent = '复制下载链接';
-        //     copyLinkBtn.onclick = () => {
-        //         const gateway = getGateway();
-        //         const downloadLink = `${gateway}/ipfs/${cid}`;
-        //         copyToClipboard(downloadLink, copyLinkBtn);
-        //     };
-        // } else {
-        //     copyLinkBtn.style.display = 'none';
-        // }
 
-        // 只为纯文本CID显示下载链接按钮
+        // 只为纯文本CID显示打开链接按钮
         if (!isLink) {
             copyLinkBtn.style.display = 'inline-block';
             copyLinkBtn.textContent = '用默认网关打开';
@@ -1443,6 +1518,16 @@
     document.addEventListener('mouseover', function(e) {
         // 如果在排除列表中，直接返回
         if (isExcludedPage()) {
+            return;
+        }
+    
+        // 检查是否在测速窗口或网关管理窗口内
+        if (e.target.closest('.ipfs-speed-test-window') || 
+            e.target.closest('.ipfs-gateway-manager') ||
+            e.target.closest('.ipfs-config-panel') ||
+            e.target.closest('.ipfs-link-preview') ||
+            e.target.closest('.ipfs-speed-test-results') ||
+            e.target.closest('.ipfs-copy-btn-group')) {
             return;
         }
     
